@@ -1,0 +1,54 @@
+{
+  "missing_segment_count": 3,
+  "by_reason": {
+    "likely_decode_failure": 1,
+    "segment_starts_after_video_end": 1,
+    "video_duration_mismatch_or_truncated": 1
+  },
+  "affected_videos": {
+    "v_FFCmoQp_xVA": 1,
+    "v_FGKdmKX1z64": 1,
+    "v_rJpFVvho0o4": 1
+  },
+  "missing_segments": [
+    {
+      "split": "train",
+      "item_id": "v_FFCmoQp_xVA__seg0005",
+      "video_id": "v_FFCmoQp_xVA",
+      "segment_index": 5,
+      "start": 63.34,
+      "end": 68.11,
+      "caption": " The man smiles and holds the drink in the air.",
+      "video_path": "S:\\video_retrieval\\activitynet_captions\\raw_videos\\v_FFCmoQp_xVA.mp4",
+      "actual_video_duration": 68.104127,
+      "annotated_video_duration": 68.11,
+      "reason": "likely_decode_failure"
+    },
+    {
+      "split": "train",
+      "item_id": "v_FGKdmKX1z64__seg0001",
+      "video_id": "v_FGKdmKX1z64",
+      "segment_index": 1,
+      "start": 43.25,
+      "end": 108.13,
+      "caption": " He uses several tools and objects to clean the glass and continues wiping down while looking at the camera.",
+      "video_path": "S:\\video_retrieval\\activitynet_captions\\raw_videos\\v_FGKdmKX1z64.mp4",
+      "actual_video_duration": 69.892063,
+      "annotated_video_duration": 108.13,
+      "reason": "video_duration_mismatch_or_truncated"
+    },
+    {
+      "split": "validation",
+      "item_id": "v_rJpFVvho0o4__seg0004",
+      "video_id": "v_rJpFVvho0o4",
+      "segment_index": 4,
+      "start": 162.5,
+      "end": 167.52,
+      "caption": "  The \"Total Immersion Swimming\" logo is shown on screen again.",
+      "video_path": "S:\\video_retrieval\\activitynet_captions\\raw_videos\\v_rJpFVvho0o4.mp4",
+      "actual_video_duration": 156.401,
+      "annotated_video_duration": 167.52,
+      "reason": "segment_starts_after_video_end"
+    }
+  ]
+}
