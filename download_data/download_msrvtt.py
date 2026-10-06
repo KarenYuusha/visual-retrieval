@@ -7,7 +7,7 @@ from huggingface_hub import hf_hub_download
 from tqdm import tqdm
 
 REPO = "VLM2Vec/MSR-VTT"
-OUTPUT_DIR = r"S:\video_retrieval\msrvtt"
+OUTPUT_DIR = r"S:\video_retrieval\msr_vtt"
 
 N_TRAIN = 1_000
 N_TEST = 1_000
