@@ -1,5 +1,6 @@
 """Minimal inference wrapper around the official InternVideo2 Stage2 1B code."""
 import gc
+from .checkpoint import load_checkpoint
 import re
 from pathlib import Path
 
@@ -164,7 +165,7 @@ def load_model(checkpoint, device='cuda', precision='auto', tokenizer_path='goog
         model = RetrievalModel()
     finally:
         torch.set_default_dtype(previous_dtype)
-    state = canonical_state_dict(torch.load(checkpoint, map_location='cpu', weights_only=True))
+    state = canonical_state_dict(load_checkpoint(checkpoint))
     result = model.load_state_dict(state, strict=False)
     validate_retrieval_weights(result.missing_keys)
     del state

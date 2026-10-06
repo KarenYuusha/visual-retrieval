@@ -1,5 +1,6 @@
 """Trained CLIP4Clip ViT-B/32 meanP, 2d patch inference; no fallback weights."""
 import torch
+from .checkpoint import load_checkpoint
 from PIL import Image
 from torch.nn import functional as F
 from transformers import CLIPTokenizer
@@ -58,7 +59,7 @@ class Clip4ClipEncoder(VideoTextEncoder):
     def __init__(self, checkpoint, device='cuda', precision='auto', tokenizer='openai/clip-vit-base-patch32'):
         self.device = device
         self.effective_precision = resolve_precision(device, precision)
-        state = torch.load(checkpoint, map_location='cpu', weights_only=True)
+        state = load_checkpoint(checkpoint)
         self.model = build_trained_clip(state).to(device)
         self.tokenizer = CLIPTokenizer.from_pretrained(str(tokenizer))
         self.transform = Compose([Resize(224, interpolation=InterpolationMode.BICUBIC), CenterCrop(224),
