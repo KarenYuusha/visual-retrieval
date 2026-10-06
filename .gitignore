@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local video data, weights and generated retrieval outputs
+**/raw_videos/
+**/source_cache/
+**/features/
+*.npz
+*.pt
+*.pth
+.superpowers/
