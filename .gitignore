@@ -225,3 +225,7 @@ __marimo__/
 *.pt
 *.pth
 .superpowers/
+
+# Feature extraction application sources are versioned.
+!src/visual_retrieval/features/
+!src/visual_retrieval/features/*.py

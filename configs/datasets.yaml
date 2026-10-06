@@ -1,0 +1,8 @@
+# External runtime data. Repository data/ contains reference annotations only.
+base_root: 'S:\video_retrieval'
+datasets:
+  msrvtt: 'S:\video_retrieval\msrvtt'
+  vatex: 'S:\video_retrieval\vatex'
+  activitynet: 'S:\video_retrieval\activitynet'
+activitynet_mode: segments
+activitynet_val_file: val_1.json

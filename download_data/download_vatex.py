@@ -18,7 +18,7 @@ from tqdm import tqdm
 # CONFIG
 # ============================================================
 
-ROOT = Path("vatex")
+ROOT = Path(r"S:\video_retrieval\vatex")
 
 # These are SUCCESSFUL final clip targets.
 TRAIN_SIZE = 1000

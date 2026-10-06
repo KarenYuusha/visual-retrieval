@@ -1,0 +1,5 @@
+model: internvideo2
+dataset: msrvtt
+device: cuda
+precision: auto
+text_batch_size: 32

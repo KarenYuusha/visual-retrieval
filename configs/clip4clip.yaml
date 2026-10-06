@@ -1,0 +1,6 @@
+model: clip4clip
+dataset: msrvtt
+device: cuda
+precision: auto
+text_batch_size: 32
+# Supply --checkpoint PATH to your trained ViT-B/32 meanP/2d checkpoint.
