@@ -25,6 +25,8 @@ def make_parser():
     parser.add_argument('--device',choices=['cuda','cpu'],default='cuda')
     parser.add_argument('--precision',choices=['auto','bf16','fp16','fp32'],default='auto')
     parser.add_argument('--text-batch-size',type=int,default=32)
+    parser.add_argument('--decode-workers',type=int,default=2)
+    parser.add_argument('--video-batch-size',type=int,help='Default: 4 for CLIP/CLIP4Clip, 1 for InternVideo2.')
     parser.add_argument('--batch-size',type=int,default=256)
     parser.add_argument('--activitynet-mode',choices=['segments','video'],default='segments')
     parser.add_argument('--activitynet-val-file',choices=['val_1.json','val_2.json'],default='val_1.json')
@@ -40,6 +42,9 @@ def commands_for(args,dataset,model):
                 '--data-root',str(root),'--output-dir',str(output),'--device',args.device,'--precision',args.precision,
                 '--text-batch-size',str(args.text_batch_size),'--activitynet-mode',args.activitynet_mode,
                 '--activitynet-val-file',args.activitynet_val_file]
+    extraction+=['--decode-workers',str(args.decode_workers)]
+    if args.video_batch_size is not None:
+        extraction+=['--video-batch-size',str(args.video_batch_size)]
     checkpoint=getattr(args,model+'_checkpoint')
     if checkpoint:
         extraction+=['--checkpoint',str(checkpoint)]
@@ -54,6 +59,8 @@ def main():
     parser=make_parser();args=parser.parse_args()
     if min(args.text_batch_size,args.batch_size)<=0:
         parser.error('Batch sizes must be positive.')
+    if args.decode_workers < 0 or (args.video_batch_size is not None and args.video_batch_size <= 0):
+        parser.error('Decoder workers must be nonnegative and video batch size must be positive.')
     args.models=list(dict.fromkeys(args.models));args.datasets=list(dict.fromkeys(args.datasets))
     if args.stage in ('all','extract') and 'clip4clip' in args.models and not (args.clip4clip_checkpoint and args.clip4clip_checkpoint.is_file()):
         parser.error('Supply --clip4clip-checkpoint PATH to a trained meanP/2d checkpoint, or select --models clip internvideo2.')

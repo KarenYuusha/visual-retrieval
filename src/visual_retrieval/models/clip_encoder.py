@@ -3,7 +3,7 @@ import torch
 from PIL import Image
 from torch.nn import functional as F
 from transformers import CLIPModel, CLIPProcessor
-from .base import VideoTextEncoder, resolve_precision, autocast_context, pool_frame_features
+from .base import VideoTextEncoder, resolve_precision, autocast_context, pool_video_batch
 
 MODEL_ID = 'openai/clip-vit-base-patch32'
 PREPROCESSING = 'clip_b32_rgb_resize_crop224_12centers_frame_l2_mean_text77_v1'
@@ -30,10 +30,14 @@ class ClipEncoder(VideoTextEncoder):
 
     @torch.inference_mode()
     def encode_video(self, rgb_frames):
-        inputs = self.processor(images=[Image.fromarray(frame) for frame in rgb_frames], return_tensors='pt')
+        return self.encode_videos([rgb_frames])
+
+    @torch.inference_mode()
+    def encode_videos(self, clips):
+        inputs = self.processor(images=[Image.fromarray(frame) for clip in clips for frame in clip], return_tensors='pt')
         with autocast_context(self.device, self.effective_precision):
             features = self.model.get_image_features(pixel_values=inputs['pixel_values'].to(self.device))
-        return pool_frame_features(features).cpu().numpy()
+        return pool_video_batch(features, [len(clip) for clip in clips]).cpu().numpy()
 
     @torch.inference_mode()
     def encode_text(self, texts):

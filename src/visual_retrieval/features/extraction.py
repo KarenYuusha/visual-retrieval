@@ -1,4 +1,4 @@
-"""Extract InternVideo2 embeddings for a combined dataset subset."""
+"""Extract baseline embeddings with shared source decoding and bounded prefetch."""
 import argparse
 import json
 import time
@@ -11,7 +11,7 @@ from tqdm import tqdm
 from visual_retrieval.data.adapters import DATASETS, ROOT_NAMES, load_dataset
 from visual_retrieval.config import MODEL_NAMES, output_directory
 from visual_retrieval.models.registry import MODEL_INFO, resolve_model_files, create_encoder, checkpoint_signature
-from visual_retrieval.data.video_sampling import read_video_frames
+from .pipeline import decode_source, prefetch_sources
 
 from visual_retrieval.common import (PREPROCESSING_V1, PREPROCESSING_V2,
                               file_signature, normalize_features, sha256, write_json)
@@ -35,12 +35,17 @@ def main():
     parser.add_argument('--device', default='cuda', choices=['cuda', 'cpu'])
     parser.add_argument('--precision', default='auto', choices=['auto', 'bf16', 'fp16', 'fp32'])
     parser.add_argument('--text-batch-size', type=int, default=32)
+    parser.add_argument('--decode-workers', type=int, default=2, help='Source decoding threads; 0 disables prefetch.')
+    parser.add_argument('--video-batch-size', type=int, help='Gallery items per inference batch; default 4 for CLIP/CLIP4Clip, 1 for InternVideo2.')
     parser.add_argument('--check-data', action='store_true', help='Check IDs, files and captions without loading a model.')
     parser.add_argument('--allow-missing', action='store_true', help='Continue extraction if video files are missing.')
     from visual_retrieval.cli.configuration import parse_configured
     args = parse_configured(parser)
     if args.text_batch_size <= 0:
         parser.error('--text-batch-size must be positive.')
+    if args.decode_workers < 0 or (args.video_batch_size is not None and args.video_batch_size <= 0):
+        parser.error('--decode-workers must be nonnegative and --video-batch-size must be positive.')
+    video_batch_size = args.video_batch_size or (1 if args.model == 'internvideo2' else 4)
     args.data_root = args.data_root or Path(r'S:\video_retrieval') / ROOT_NAMES[args.dataset]
     if args.dataset == 'activitynet':
         args.dataset = 'activitynet_captions'
@@ -101,9 +106,10 @@ def main():
             effective_precision = encoder.effective_precision
         return encoder
 
-    video_features, successful_ids, failed = [], [], []
+    features_by_id, failed, sources = {}, [], {}
     reused = 0
-    for item in tqdm(items, desc='Gallery', unit='item'):
+    # Validate caches before queuing work: fully cached sources are never decoded.
+    for item in items:
         video_id = item['item_id']
         video_path = item['path']
         if not video_path.is_file():
@@ -116,23 +122,48 @@ def main():
         feature = cached_video(cache_path, signature)
         if feature is not None:
             reused += 1
+            features_by_id[video_id] = feature
         else:
-            try:
-                rgb, indices, count = read_video_frames(video_path, item['start'], item['end'], info['num_frames'])
-            except (ValueError, OSError) as error:
-                failed.append({'video_id': video_id, 'error': str(error)})
-                continue
-            active_encoder = ensure_model()
-            # Batch size 1 keeps memory usage modest. Model errors (e.g. OOM)
-            # abort immediately; previously written video caches remain resumable.
-            feature = active_encoder.encode_video(rgb).reshape(-1)
-            feature = normalize_features(feature.reshape(1, -1))[0]
-            if feature.shape != (512,):
-                raise ValueError(f'Unexpected embedding shape for {video_id}: {feature.shape}')
-            atomic_npz(cache_path, feature=feature, source_signature=json.dumps(signature),
+            sources.setdefault(str(video_path.resolve()), []).append({**item, 'signature': signature})
+    print(f'Decoding {len(sources)} uncached sources with {args.decode_workers} workers; '
+          f'video batch size {video_batch_size}; reused items {reused}.')
+    inference_batches = 0
+    def encode_batch(batch):
+        nonlocal inference_batches
+        # Model failures abort; all previously committed item caches are resumable.
+        features = normalize_features(ensure_model().encode_videos([result[0] for _, result in batch]))
+        if features.shape != (len(batch), 512):
+            raise ValueError(f'Unexpected batched embedding shape: {features.shape}')
+        for (item, (_, indices, count)), feature in zip(batch, features):
+            video_id = item['item_id']
+            atomic_npz(cache / f'{video_id}.npz', feature=feature, source_signature=json.dumps(item['signature']),
                        frame_indices=np.array(indices), decoded_frames=count)
-        video_features.append(feature)
-        successful_ids.append(video_id)
+            features_by_id[video_id] = feature
+        inference_batches += 1
+
+    stream = prefetch_sources(sources.values(), lambda group: decode_source(group, info['num_frames']), args.decode_workers)
+    try:
+        with tqdm(total=len(items), initial=reused + len(failed), desc='Gallery', unit='item') as progress:
+            batch = []
+            for group in stream:
+                for item, result in group:
+                    if isinstance(result, Exception):
+                        failed.append({'video_id': item['item_id'], 'error': str(result)})
+                        progress.update(1)
+                        continue
+                    batch.append((item, result))
+                    if len(batch) == video_batch_size:
+                        encode_batch(batch)
+                        progress.update(len(batch))
+                        batch.clear()
+            if batch:
+                encode_batch(batch)
+                progress.update(len(batch))
+    finally:
+        stream.close()
+    # Grouping/caching must not change gallery order (including stable ranking ties).
+    successful_ids = [video_id for video_id in ids if video_id in features_by_id]
+    video_features = [features_by_id[video_id] for video_id in successful_ids]
     write_json(output / 'failed_videos.json', failed)
     if not successful_ids:
         raise ValueError('No videos were extracted. See failed_videos.json.')
@@ -177,6 +208,8 @@ def main():
         'efficiency': {'extraction_wall_seconds': time.perf_counter() - extraction_started,
                        'peak_gpu_allocated_bytes': torch.cuda.max_memory_allocated() if args.device == 'cuda' else None,
                        'feature_bundle_bytes': (output / 'features.npz').stat().st_size,
+                       'decode_workers': args.decode_workers, 'video_batch_size': video_batch_size,
+                       'decoded_source_videos': len(sources), 'video_inference_batches': inference_batches,
                        'cached_video_items': reused},
     })
     print(f'Saved {len(successful_ids)} video features and {len(queries)} text features to {output}')

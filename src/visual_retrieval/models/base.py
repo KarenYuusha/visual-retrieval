@@ -2,11 +2,15 @@
 from abc import ABC, abstractmethod
 from contextlib import nullcontext
 import torch
+import numpy as np
 from torch.nn import functional as F
 
 
 class VideoTextEncoder(ABC):
     embedding_dim = 512
+    def encode_videos(self, clips):
+        """Conservative fallback for joint video encoders such as InternVideo2."""
+        return np.concatenate([self.encode_video(clip) for clip in clips], axis=0)
     @abstractmethod
     def encode_video(self, rgb_frames):
         """RGB uint8 [T,H,W,3] -> normalized float32 numpy [1,D]."""
@@ -38,3 +42,8 @@ def autocast_context(device, precision):
 def pool_frame_features(features):
     """Normalize each frame, mean pool, then normalize the video."""
     return F.normalize(F.normalize(features.float(), dim=-1).mean(dim=0, keepdim=True), dim=-1)
+
+
+def pool_video_batch(features, lengths):
+    """Keep each video's frame mean separate, including variable-length clips."""
+    return torch.cat([pool_frame_features(chunk) for chunk in features.split(lengths)], dim=0)

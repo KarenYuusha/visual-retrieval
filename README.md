@@ -57,6 +57,32 @@ CLIP and InternVideo2 download weights/tokenizers on first extraction. If Intern
 
 Model profile YAML values are defaults; explicit CLI values override them. `--data-root PATH` changes a single dataset location. `--annotations PATH [PATH ...]` supplies explicit annotation files. `--text-batch-size 8` can reduce memory use.
 
+Gallery extraction groups uncached segments by source video, sharing the timestamp
+scan and selected-frame pass across its segments. Two CPU decoding threads prepare
+sources while inference runs on the main thread. CLIP and CLIP4Clip default to four
+gallery items per GPU batch (48 frames with the 12-frame profiles); InternVideo2
+defaults to one item to keep VRAM use modest. Frame selection and per-video pooling
+are unchanged, so existing feature caches remain reusable.
+
+```powershell
+# Resume with the optimized defaults, including the partly extracted ActivityNet gallery.
+.\.venv\Scripts\python.exe scripts\run_baselines.py --models clip internvideo2
+
+# Tune only CLIP on ActivityNet: four decoding threads, 8 segments (96 frames) per batch.
+.\.venv\Scripts\python.exe scripts\run_baselines.py --datasets activitynet --models clip --decode-workers 4 --video-batch-size 8
+```
+
+Start with the defaults. If GPU utilization remains low and CPU/RAM can support it,
+try `--decode-workers 4`. If inference is the bottleneck and VRAM is available,
+increase `--video-batch-size`. Reduce that size after a CUDA out-of-memory error;
+completed item caches are retained. A runner batch-size override applies to every
+selected model, so use model-specific runs when tuning CLIP. For limited RAM or
+debugging, use `--decode-workers 0 --video-batch-size 1`. Prefetch retains only a
+bounded number of source groups, but RGB frames for all uncached segments of each
+active source still occupy RAM. These execution options are recorded in manifest
+efficiency metadata and do not invalidate feature caches. `--text-batch-size`
+controls caption encoding only; `--batch-size` controls ranking evaluation only.
+
 The all-model runner accepts `--base-root`, `--msrvtt-root`, `--vatex-root`, `--activitynet-root`, `--datasets`, and `--models`. `configs/datasets.yaml` documents the canonical external layout. Outputs can be moved with `--output-root PATH`; each dataset/model gets its own subfolder.
 
 ActivityNet defaults to `--activitynet-mode segments`. Use `--activitynet-mode video` for one whole-video embedding and one concatenated paragraph query; long paragraphs are truncated by each model's tokenizer. Use a separate output directory/root when changing protocols. `activitynet_captions` remains an accepted alias in the extraction CLI.

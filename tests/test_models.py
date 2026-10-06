@@ -31,6 +31,20 @@ def test_clip4clip_full_checkpoint_is_loaded_without_fallback():
         build_trained_clip(incomplete, require_vit_b32=False)
 
 
+def test_clip4clip_batch_matches_individual_real_native_inference():
+    from visual_retrieval.models.clip4clip_encoder import Clip4ClipEncoder
+    from visual_retrieval.models.clip4clip_vendor.module_clip import CLIP
+    from torchvision.transforms import Compose, Resize, ToTensor
+    # A complete reduced native model exercises the actual encoder methods.
+    adapter = Clip4ClipEncoder.__new__(Clip4ClipEncoder)
+    adapter.device, adapter.effective_precision = 'cpu', 'fp32'
+    adapter.model = CLIP(16, 28, 1, 64, 14, 8, 20, 64, 1, 1).float().eval()
+    adapter.transform = Compose([Resize((28, 28)), ToTensor()])
+    clips = [np.zeros((4,32,32,3), dtype=np.uint8), np.full((2,32,32,3), 120, dtype=np.uint8)]
+    np.testing.assert_allclose(adapter.encode_videos(clips),
+                               np.concatenate([adapter.encode_video(x) for x in clips]), atol=1e-5)
+
+
 def test_clip_adapter_executes_small_real_transformers_model(tmp_path):
     import json
     from transformers import CLIPConfig, CLIPModel, CLIPTokenizer, CLIPImageProcessor, CLIPProcessor
@@ -49,6 +63,10 @@ def test_clip_adapter_executes_small_real_transformers_model(tmp_path):
         ClipEncoder(tmp_path,'cpu')
     adapter=ClipEncoder(tmp_path,'cpu',require_vit_b32=False)
     video=adapter.encode_video(np.zeros((12,32,48,3),dtype=np.uint8))
+    clips = [np.zeros((12,32,48,3), dtype=np.uint8), np.full((3,40,32,3), 180, dtype=np.uint8)]
+    assert hasattr(adapter, 'encode_videos'), 'Missing batched video inference'
+    batched = adapter.encode_videos(clips)
+    np.testing.assert_allclose(batched, np.concatenate([adapter.encode_video(x) for x in clips]), atol=1e-5)
     text=adapter.encode_text(['a','a'])
     assert video.shape==(1,512) and text.shape==(2,512)
     np.testing.assert_allclose(np.linalg.norm(video,axis=1),1,atol=1e-5)

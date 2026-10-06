@@ -5,7 +5,7 @@ from PIL import Image
 from torch.nn import functional as F
 from transformers import CLIPTokenizer
 from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize, InterpolationMode
-from .base import VideoTextEncoder, resolve_precision, autocast_context, pool_frame_features
+from .base import VideoTextEncoder, resolve_precision, autocast_context, pool_video_batch
 from .clip4clip_vendor.module_clip import build_model
 
 MODEL_ID = 'CLIP4Clip-ViT-B32-meanP-2d'
@@ -68,10 +68,14 @@ class Clip4ClipEncoder(VideoTextEncoder):
 
     @torch.inference_mode()
     def encode_video(self, rgb_frames):
-        frames = torch.stack([self.transform(Image.fromarray(frame)) for frame in rgb_frames]).to(self.device)
+        return self.encode_videos([rgb_frames])
+
+    @torch.inference_mode()
+    def encode_videos(self, clips):
+        frames = torch.stack([self.transform(Image.fromarray(frame)) for clip in clips for frame in clip]).to(self.device)
         with autocast_context(self.device, self.effective_precision):
             features = self.model.encode_image(frames, video_frame=len(frames))
-        return pool_frame_features(features).cpu().numpy()
+        return pool_video_batch(features, [len(clip) for clip in clips]).cpu().numpy()
 
     @torch.inference_mode()
     def encode_text(self, texts):
