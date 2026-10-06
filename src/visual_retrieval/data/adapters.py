@@ -7,7 +7,7 @@ import re
 from visual_retrieval.common import PROTOCOL, find_annotations, load_captions, load_subset, middle_indices
 
 DATASETS = ('msrvtt', 'vatex', 'activitynet', 'activitynet_captions')
-ROOT_NAMES = dict(msrvtt='msrvtt', vatex='vatex', activitynet='activitynet', activitynet_captions='activitynet')
+ROOT_NAMES = dict(msrvtt='msr_vtt', vatex='vatex', activitynet='activitynet_captions', activitynet_captions='activitynet_captions')
 SPLIT_NAMES = ('train', 'test', 'val', 'validation')
 
 

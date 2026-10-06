@@ -6,9 +6,9 @@ Runtime datasets live outside the repository:
 
 | Dataset | Default root | Gallery/query protocol |
 |---|---|---|
-| MSR-VTT | `S:\video_retrieval\msrvtt` | Combined train+test videos, every caption |
+| MSR-VTT | `S:\video_retrieval\msr_vtt` | Combined train+test videos, every caption |
 | VATEX | `S:\video_retrieval\vatex` | Combined train+validation clips, every English caption |
-| ActivityNet Captions | `S:\video_retrieval\activitynet` | Combined train+validation timestamped segments, one sentence per segment |
+| ActivityNet Captions | `S:\video_retrieval\activitynet_captions` | Combined train+validation timestamped segments, one sentence per segment |
 
 **The repository's `data/` directory is reference-only. No command selects it automatically.** Each runtime root must contain `subset.json`, `raw_videos/`, and annotation files under `raw_data/` (or the root). See [dataset formats](docs/datasets.md).
 
@@ -96,7 +96,7 @@ Extraction reuses valid caches; source-video changes invalidate individual embed
 ## Search and interaction
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\search.py --features-dir "S:\video_retrieval\msrvtt\features\internvideo2_stage2_1b_all" --query "a man carrying an umbrella"
+.\.venv\Scripts\python.exe scripts\search.py --features-dir "S:\video_retrieval\msr_vtt\features\internvideo2_stage2_1b_all" --query "a man carrying an umbrella"
 ```
 
 Search loads the matching checkpoint from saved provenance. Results include source-video paths and segment timestamps. `--data-root` relocates playback paths.

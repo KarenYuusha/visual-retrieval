@@ -10,8 +10,8 @@ from visual_retrieval.cli.configuration import parse_configured
 def test_runner_defaults_external_data_and_model_specific_outputs():
     args=make_parser().parse_args([])
     clip=commands_for(args,'msrvtt','clip');iv2=commands_for(args,'activitynet','internvideo2')
-    assert clip['output']==Path(r'S:\video_retrieval')/'msrvtt/features/clip_vit_b32_12f_mean'
-    assert iv2['output']==Path(r'S:\video_retrieval')/'activitynet/features/internvideo2_stage2_1b_all'
+    assert clip['output']==Path(r'S:\video_retrieval') / 'msr_vtt/features/clip_vit_b32_12f_mean'
+    assert iv2['output']==Path(r'S:\video_retrieval') / 'activitynet_captions/features/internvideo2_stage2_1b_all'
     assert '--device' in clip['extract'] and clip['extract'][clip['extract'].index('--device')+1]=='cuda'
 
 

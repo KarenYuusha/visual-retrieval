@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-DEFAULT_ROOT = r'S:\video_retrieval\msrvtt'
+DEFAULT_ROOT = r'S:\video_retrieval\msr_vtt'
 PROTOCOL = 'combined_train_test_all_captions'
 PREPROCESSING_V1 = '4_middle_frames_uint8_bicubic224_imagenet_text_clean_max40_v1'
 PREPROCESSING_V2 = '4_middle_frames_uint8_bicubic224_imagenet_text_clean_cls_only_max40_v2'

@@ -6,10 +6,10 @@ from visual_retrieval.config import DEFAULT_BASE, dataset_root, output_directory
 
 def test_external_roots_are_user_requested_names():
     assert str(DEFAULT_BASE) == r'S:\video_retrieval'
-    assert dataset_root('msrvtt') == DEFAULT_BASE / 'msrvtt'
+    assert dataset_root('msrvtt') == DEFAULT_BASE / 'msr_vtt'
     assert dataset_root('vatex') == DEFAULT_BASE / 'vatex'
-    assert dataset_root('activitynet') == DEFAULT_BASE / 'activitynet'
-    assert dataset_root('activitynet_captions') == DEFAULT_BASE / 'activitynet'
+    assert dataset_root('activitynet') == DEFAULT_BASE / 'activitynet_captions'
+    assert dataset_root('activitynet_captions') == DEFAULT_BASE / 'activitynet_captions'
     assert output_directory('clip', Path('/videos')) == Path('/videos/features/clip_vit_b32_12f_mean')
 
 

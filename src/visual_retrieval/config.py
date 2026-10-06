@@ -13,8 +13,10 @@ def canonical_dataset(name):
         raise ValueError(f'Unknown dataset: {name}')
     return name
 
+DATASET_FOLDERS = {'msrvtt': 'msr_vtt', 'vatex': 'vatex', 'activitynet': 'activitynet_captions'}
+
 def dataset_root(name, base=DEFAULT_BASE):
-    return Path(base) / canonical_dataset(name)
+    return Path(base) / DATASET_FOLDERS[canonical_dataset(name)]
 
 def output_directory(model, root):
     return Path(root) / 'features' / MODEL_OUTPUTS[model]

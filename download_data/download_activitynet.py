@@ -13,7 +13,7 @@ from tqdm import tqdm
 # CONFIG
 # ============================================================
 
-ROOT = Path(r"S:\video_retrieval\activitynet")
+ROOT = Path(r"S:\video_retrieval\activitynet_captions")
 
 # Number of SUCCESSFULLY downloaded videos wanted
 # TRAIN_SIZE = 5

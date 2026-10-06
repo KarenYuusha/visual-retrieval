@@ -1,6 +1,6 @@
 # Runtime datasets
 
-The defaults are `S:\video_retrieval\msrvtt`, `S:\video_retrieval\vatex`, and `S:\video_retrieval\activitynet`. Repository `data/` annotations are reference-only. No runtime command falls back to them.
+The defaults are `S:\video_retrieval\msr_vtt`, `S:\video_retrieval\vatex`, and `S:\video_retrieval\activitynet_captions`. Repository `data/` annotations are reference-only. No runtime command falls back to them.
 
 Each root needs `subset.json` containing video-ID string lists under `train`, `test`, `val`, or `validation`. IDs are combined with first-occurrence deduplication; seed/size/target fields are ignored. MSR-VTT retains its original train+test selection. Every selected item must have a nonempty caption.
 

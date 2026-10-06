@@ -8,7 +8,7 @@
 **Spec:** docs/superpowers/specs/2026-10-06-shared-retrieval-design.md
 
 ## Global Constraints
-- Data defaults S:\video_retrieval\msrvtt, vatex, activitynet. Repository data is reference-only.
+- Data defaults S:\video_retrieval\msr_vtt, vatex, activitynet_captions. Repository data is reference-only.
 - Corrected InternVideo2 CLS-only tokenizer and legacy cache compatibility remain intact.
 - CLIP4Clip requires full trained meanP/2d checkpoint; no silent fallback.
 - Comparison uses identical dataset items and queries, full-rank metrics, stable ties.

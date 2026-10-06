@@ -22,7 +22,7 @@ Example sessions JSON (illustrative IDs; replace with actual gallery items):
 Positive/negative item IDs represent recorded feedback after that turn. Omitting them yields text refinement only. Do not automatically select the ground-truth target as a positive without labeling the experiment as simulated oracle feedback. Separate development/test sessions by source video, especially for ActivityNet segments.
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\evaluate_sessions.py --features-dir "S:\video_retrieval\msrvtt\features\internvideo2_stage2_1b_all" --sessions "S:\video_retrieval\sessions\msrvtt_test.json" --method accumulated --output "S:\video_retrieval\reports\iv2_sessions.json"
+.\.venv\Scripts\python.exe scripts\evaluate_sessions.py --features-dir "S:\video_retrieval\msr_vtt\features\internvideo2_stage2_1b_all" --sessions "S:\video_retrieval\sessions\msrvtt_test.json" --method accumulated --output "S:\video_retrieval\reports\iv2_sessions.json"
 ```
 
 Use --method latest or feedback for alternatives. The report includes per-turn R@1/R@5/R@10/MRR, raw ranks, latency and first turn reaching top10. Turn metrics include sessions that have that turn and report the denominator; use equally sized turn sequences for matched comparisons. End-to-end latency includes text encoding, feedback and ranking; GPU-to-CPU feature transfer synchronizes inference.
