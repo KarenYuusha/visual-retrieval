@@ -196,7 +196,7 @@ def main():
                video_ids=np.array(successful_ids), text_features=text_features[keep],
                text_video_ids=labels[keep])
     # Existing metrics must never describe a newly written feature bundle.
-    for name in ('evaluation.json', 'query_ranks.csv'):
+    for name in ('evaluation.json', 'query_ranks.csv', 'predictions.jsonl'):
         (output / name).unlink(missing_ok=True)
     write_json(output / 'queries.json', queries)
     write_json(output / 'manifest.json', {

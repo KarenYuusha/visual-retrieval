@@ -110,8 +110,10 @@ def test_extraction_batches_segments_and_resumes_without_decoding(tmp_path, monk
     with np.load(output / 'features.npz') as bundle:
         assert list(bundle['video_ids']) == ['v_one__seg0000', 'v_one__seg0001', 'v_one__seg0002']
     batches.clear()
+    (output / 'predictions.jsonl').write_text('{"predicted_video_id":"stale"}\n')
     (output / 'video_cache' / 'v_one__seg0001.npz').unlink()
     extraction.main()
+    assert not (output / 'predictions.jsonl').exists()
     assert batches == [1]
     with np.load(output / 'features.npz') as bundle:
         assert list(bundle['video_ids']) == ['v_one__seg0000', 'v_one__seg0001', 'v_one__seg0002']

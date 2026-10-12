@@ -43,7 +43,7 @@ def ensure_cache_config(output, run_config):
                 if old.is_file() and not backup.exists():
                     old.replace(backup)
             for name in ('text_cache.npz', 'features.npz', 'queries.json', 'manifest.json',
-                         'evaluation.json', 'query_ranks.csv'):
+                         'evaluation.json', 'query_ranks.csv', 'predictions.jsonl'):
                 (output / name).unlink(missing_ok=True)
             write_json(config_path, run_config)
             print('Tokenizer correction detected: retaining video caches and regenerating text embeddings.')

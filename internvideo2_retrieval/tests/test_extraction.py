@@ -47,11 +47,13 @@ def test_tokenizer_fix_invalidates_only_text_and_combined_outputs(tmp_path):
     atomic_npz(tmp_path / 'text_cache.npz', text_features=np.ones((1, 512)))
     atomic_npz(tmp_path / 'features.npz', video_features=np.ones((1, 512)))
     (tmp_path / 'evaluation.json').write_text('{"text_to_video":{"r1":4.805}}')
+    (tmp_path / 'predictions.jsonl').write_text('{"predicted_video_id":"stale"}\n')
     ensure_cache_config(tmp_path, new)
     assert (cache / 'video1.npz').is_file()
     assert not (tmp_path / 'text_cache.npz').exists()
     assert not (tmp_path / 'features.npz').exists()
     assert not (tmp_path / 'evaluation.json').exists()
+    assert not (tmp_path / 'predictions.jsonl').exists()
     assert (tmp_path / 'evaluation_before_tokenizer_fix.json').is_file()
     assert json.loads((tmp_path / 'run_config.json').read_text()) == new
 

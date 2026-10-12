@@ -142,7 +142,27 @@ Each folder contains normalized float32 `features.npz` (`video_features`, `video
 Reports include extraction wall time, peak allocated GPU memory (when CUDA is used),
 feature bundle size and cache reuse counts. Cached extraction timings are labeled by
 the reused item count; compare fresh extraction runs when reporting throughput.
-Reports contain R@1/R@5/R@10 as percentages and MRR on a 0–1 scale using full-gallery ranks. Ties use gallery order. Evaluation saves `evaluation.json` and per-query `query_ranks.csv` in each feature directory. The runner saves aggregate results to `S:\video_retrieval\reports\baseline_comparison.json`; `--summary PATH` overrides it.
+Reports contain R@1/R@5/R@10 as percentages and MRR on a 0–1 scale using full-gallery ranks. Ties use gallery order. Evaluation saves `evaluation.json`, per-query `query_ranks.csv`, and `predictions.jsonl` in each feature directory. The runner saves aggregate results to `S:\video_retrieval\reports\baseline_comparison.json`; `--summary PATH` overrides it.
+
+The CSV now includes ground-truth and predicted top-1 video/segment IDs,
+`is_correct`, their cosine scores, `score_gap` (predicted minus ground-truth
+score), and paths/segment times when available. The original `video_id` column
+remains an alias for the ground-truth ID. JSONL contains one query per line with
+the same labels, full-gallery target rank, top-1/ground-truth item metadata and
+the top 10 candidate IDs/scores by default. Candidate metadata for the remaining
+top results is in `manifest.json`. Cosine scores are not calibrated probabilities.
+
+Rerun evaluation on existing features to generate these outputs; no feature
+extraction or model loading is needed:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\evaluate_baselines.py --features-dir "S:\video_retrieval\activitynet_captions\features\clip4clip_vit_b32_12f_meanP" --allow-incomplete --top-k 10
+```
+
+`--top-k` changes only the number of saved candidates, never the ranks or
+metrics. It is capped at the gallery size. The baseline runner and comparison
+commands generate 10 candidates by default. See the [visual error-analysis
+workflow](docs/error_analysis.md) for a proposed viewer and manual error labels.
 
 Comparisons require identical gallery order, query IDs, caption text, targets and protocol, and complete galleries. They fail explicitly rather than comparing different subsets. For a standalone JSON+CSV table use `scripts\compare_models.py --features-dirs DIR1 DIR2 DIR3 --output PATH.json`.
 

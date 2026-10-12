@@ -1,6 +1,5 @@
 """Evaluate caption queries against one combined dataset gallery."""
 import argparse
-import csv
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,7 +11,8 @@ from visual_retrieval.common import DEFAULT_ROOT, PROTOCOL, PREPROCESSING_V2, re
 
 from visual_retrieval.models.registry import validate_preprocessing
 
-from .ranking_metrics import compute_ranks, metrics_from_ranks
+from .ranking_metrics import compute_ranks, compute_rankings, metrics_from_ranks
+from .prediction_exports import save_predictions
 
 
 def main():
@@ -20,15 +20,22 @@ def main():
     parser.add_argument('--features-dir', type=Path,
                         default=Path(DEFAULT_ROOT) / 'features' / 'internvideo2_stage2_1b_all')
     parser.add_argument('--batch-size', type=int, default=256)
+    parser.add_argument('--top-k', type=int, default=10, help='Candidates per query saved for error analysis; ranks still use the full gallery.')
     parser.add_argument('--allow-incomplete', action='store_true',
                         help='Explicitly evaluate only successfully extracted videos.')
     args = parser.parse_args()
-    report = evaluate_directory(args.features_dir, args.batch_size, args.allow_incomplete)
+    if args.top_k <= 0:
+        parser.error('--top-k must be positive.')
+    report = evaluate_directory(args.features_dir, args.batch_size, args.allow_incomplete, args.top_k)
     print(json.dumps(report['text_to_video'], indent=2))
     print(f'Saved: {args.features_dir / "evaluation.json"}')
+    print(f'Saved predictions: {args.features_dir / "query_ranks.csv"} and {args.features_dir / "predictions.jsonl"}')
 
 
-def evaluate_directory(features_dir, batch_size=256, allow_incomplete=False):
+def evaluate_directory(features_dir, batch_size=256, allow_incomplete=False, top_k=10):
+    if not isinstance(top_k, (int, np.integer)) or top_k <= 0:
+        raise ValueError('top_k must be a positive integer.')
+    top_k = int(top_k)
     features_dir = Path(features_dir)
     bundle = read_feature_bundle(features_dir)
     manifest = json.loads((features_dir / 'manifest.json').read_text(encoding='utf-8'))
@@ -43,11 +50,12 @@ def evaluate_directory(features_dir, batch_size=256, allow_incomplete=False):
                                         'combined_subset_activitynet_segments', 'combined_subset_activitynet_video') or set(video_ids) - set(requested):
         raise ValueError('Feature manifest does not describe the expected combined gallery.')
     lookup = {video_id: i for i, video_id in enumerate(video_ids)}
-    ranks = compute_ranks(bundle['text_features'], bundle['video_features'],
-                          [lookup[v] for v in bundle['text_video_ids']], batch_size)
     queries = json.loads((features_dir / 'queries.json').read_text(encoding='utf-8'))
-    if len(queries) != len(ranks) or [q['video_id'] for q in queries] != bundle['text_video_ids'].tolist():
+    if len(queries) != len(bundle['text_features']) or [q['video_id'] for q in queries] != bundle['text_video_ids'].tolist():
         raise ValueError('queries.json is misaligned with feature labels.')
+    rankings = compute_rankings(bundle['text_features'], bundle['video_features'],
+                               [lookup[v] for v in bundle['text_video_ids']], batch_size, top_k)
+    ranks = rankings['ranks']
     report = {'model': manifest['model_id'] if 'model_id' in manifest else 'InternVideo2-Stage2_1B-224p-f4', 'model_name': model_name, 'dataset': manifest.get('dataset', 'msrvtt'),
               'gallery': '+'.join(manifest.get('splits', ['train', 'test'])),
               'protocol': manifest['protocol'], 'preprocessing': manifest['preprocessing'],
@@ -59,13 +67,12 @@ def evaluate_directory(features_dir, batch_size=256, allow_incomplete=False):
               'complete': not omitted, 'omitted_video_ids': omitted,
               'units': {'r1': 'percent', 'r5': 'percent', 'r10': 'percent', 'mrr': '0_to_1'},
               'tie_policy': 'gallery_order', 'text_to_video': metrics_from_ranks(ranks),
+              'prediction_export': {'schema_version': 1, 'top_k': rankings['top_indices'].shape[1],
+                                    'requested_top_k': top_k, 'csv': 'query_ranks.csv', 'jsonl': 'predictions.jsonl',
+                                    'label_type': 'gallery_item_id', 'score_type': 'cosine_similarity'},
               'created_utc': datetime.now(timezone.utc).isoformat()}
+    save_predictions(features_dir, queries, video_ids, manifest, rankings)
     write_json(features_dir / 'evaluation.json', report)
-    with (features_dir / 'query_ranks.csv').open('w', newline='', encoding='utf-8') as handle:
-        writer = csv.writer(handle)
-        writer.writerow(['query_id', 'video_id', 'caption', 'rank', 'reciprocal_rank'])
-        for query, rank in zip(queries, ranks):
-            writer.writerow([query['query_id'], query['video_id'], query['text'], int(rank), 1 / rank])
     return report
 
 
