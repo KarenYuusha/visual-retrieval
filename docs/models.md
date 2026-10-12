@@ -8,7 +8,26 @@
 
 Comparison uses cosine similarity without video-text reranking. Sampling and preprocessing are declared in saved manifests. This is a comparison of configurations, not an isolated architecture experiment. Uniform segment-center frame sampling is a project choice; do not equate these subset runs with official evaluation protocols.
 
-CLIP4Clip requires an explicitly supplied trained checkpoint. `clip.*` encoder weights are loaded strictly; absent weights are not filled using base CLIP. Ordinary CLIP checkpoints without the trained wrapper prefix are rejected. Only meanP/2d is supported; seqLSTM, seqTransf, tightTransf and 3d-patch weights are rejected. Prefixes cannot prove a checkpoint was actually trained: document where your file came from and which dataset it used.
+CLIP4Clip requires an explicitly supplied trained checkpoint. Original `clip.*`
+encoder weights and complete Hugging Face CLIP-format state dictionaries are
+supported. HF attention Q/K/V tensors are packed in the original order and
+projection matrices transposed in memory, then loaded strictly. All trained
+tensors must be present; only verified deterministic legacy position-ID buffers
+are omitted. Unknown HF weights are rejected. HF fp32 values are preserved after
+the original builder's temporary half-precision initialization. No absent weight
+is filled using base CLIP. Unwrapped native OpenAI CLIP checkpoints are rejected.
+Only meanP/2d at 224 pixels is supported; seqLSTM, seqTransf, tightTransf and
+3d-patch weights are rejected. Neither prefixes nor HF tensor names prove a
+checkpoint was trained: supply a known trained source and document its dataset.
+
+A downloadable option is [Searchium-ai/clip4clip-webvid150k](https://huggingface.co/Searchium-ai/clip4clip-webvid150k).
+Download its `pytorch_model.bin`, optionally naming the local file
+`clip4clip_webvid150k_hf.bin`, and pass that file to `--checkpoint` (single extraction)
+or `--clip4clip-checkpoint` (runner). It is based on ViT-B/32 trained on 150,000
+WebVid pairs, not the original paper's MSR-VTT fine-tuned weights. Architecture
+and training source should both be named when reporting the baseline. Sampling,
+normalization, meanP pooling and text limit remain the shared pipeline's declared
+12-frame/32-token protocol. Existing original-format caches remain compatible.
 
 Sources:
 - https://github.com/openai/CLIP

@@ -1,6 +1,7 @@
 """Trained CLIP4Clip ViT-B/32 meanP, 2d patch inference; no fallback weights."""
 import torch
 from .checkpoint import load_checkpoint
+from .clip4clip_hf import convert_hf_clip_weights
 from PIL import Image
 from torch.nn import functional as F
 from transformers import CLIPTokenizer
@@ -13,7 +14,7 @@ SOURCE_COMMIT = '508ffa3de39ba0563a03199c440ab602a72e9b6f'
 PREPROCESSING = 'clip4clip_b32_rgb_resize_crop224_12centers_frame_l2_meanP_text32_v1'
 
 
-def extract_clip_weights(checkpoint):
+def _canonical_state(checkpoint):
     if not isinstance(checkpoint, dict):
         raise ValueError('CLIP4Clip checkpoint must contain a state dictionary.')
     for key in ('model', 'module', 'state_dict'):
@@ -27,18 +28,30 @@ def extract_clip_weights(checkpoint):
         if key in state:
             raise ValueError(f'Duplicate checkpoint key: {key}')
         state[key] = value
+    return state
+
+
+def _extract_weights(state):
     forbidden = ('frame_position_embeddings.', 'transformerClip.', 'lstm_visual.',
                  'cross.', 'similarity_dense.', 'clip.visual.conv2.')
     if any(key.startswith(forbidden) for key in state):
         raise ValueError('Only meanP with 2d patches is supported; checkpoint contains temporal/cross/3d weights.')
+    if any(key.startswith(('vision_model.', 'text_model.')) for key in state):
+        return convert_hf_clip_weights(state)
     clip = {key[5:]: value for key, value in state.items() if key.startswith('clip.') and isinstance(value, torch.Tensor)}
     if not clip:
         raise ValueError('Expected trained CLIP4Clip clip-prefixed weights; ordinary CLIP weights are not accepted.')
     return clip
 
 
+def extract_clip_weights(checkpoint):
+    return _extract_weights(_canonical_state(checkpoint))
+
+
 def build_trained_clip(checkpoint, require_vit_b32=True):
-    state = extract_clip_weights(checkpoint)
+    raw = _canonical_state(checkpoint)
+    is_hf = any(key.startswith(('vision_model.', 'text_model.')) for key in raw)
+    state = _extract_weights(raw)
     if require_vit_b32:
         required = {'visual.conv1.weight': (768, 3, 32, 32), 'visual.proj': (768, 512),
                     'text_projection': (512, 512), 'token_embedding.weight': (49408, 512),
@@ -51,8 +64,16 @@ def build_trained_clip(checkpoint, require_vit_b32=True):
             layers = {int(key[len(prefix):].split('.')[0]) for key in state if key.startswith(prefix)}
             if layers != set(range(12)):
                 raise ValueError('ViT-B/32 requires all 12 vision layers and all 12 text layers.')
+        if ('visual.positional_embedding' not in state
+                or tuple(state['visual.positional_embedding'].shape) != (50, 768)):
+            raise ValueError('Expected 224-pixel ViT-B/32: visual.positional_embedding must have shape (50, 768).')
     # Official builder loads strictly: never fill missing encoder/projection weights.
-    return build_model(dict(state)).float().eval().requires_grad_(False)
+    model = build_model(dict(state)).float().eval().requires_grad_(False)
+    if is_hf:
+        # The original builder temporarily casts parameters to half precision.
+        # Reload the translated HF weights in float32 to preserve their values.
+        model.load_state_dict(state, strict=True)
+    return model
 
 
 class Clip4ClipEncoder(VideoTextEncoder):

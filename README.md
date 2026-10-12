@@ -39,11 +39,40 @@ For pip: `py -3.11 -m venv .venv`, then `.\.venv\Scripts\python.exe -m pip insta
 # Run the two automatically available models on all three datasets
 .\.venv\Scripts\python.exe scripts\run_baselines.py --models clip internvideo2
 
-# Run all three: CLIP4Clip requires your trained meanP/2d ViT-B/32 checkpoint
-.\.venv\Scripts\python.exe scripts\run_baselines.py --clip4clip-checkpoint "S:\video_retrieval\models\clip4clip_meanP.bin"
+# Run all three: CLIP4Clip requires a trained meanP/2d ViT-B/32 checkpoint
+.\.venv\Scripts\python.exe scripts\run_baselines.py --clip4clip-checkpoint "S:\video_retrieval\models\clip4clip_webvid150k_hf.bin"
 ```
 
-The final checkpoint path is an example: supply the real file. CLIP4Clip accepts official `clip.*` weights in a plain state dictionary or `model`/`module`/`state_dict` wrapper. Temporal (`seqTransf`/`seqLSTM`), cross-encoder and 3d-patch checkpoints are rejected by this meanP adapter. It never substitutes base CLIP weights. See [model details and checkpoint requirements](docs/models.md).
+Supply the real checkpoint file. CLIP4Clip accepts original `clip.*` weights or a
+complete Hugging Face CLIP-format checkpoint such as Searchium's WebVid-150k model.
+Plain state dictionaries and `model`/`module`/`state_dict` wrappers are supported.
+Hugging Face tensors are translated automatically in memory; no manual conversion
+or official repo clone is needed. Temporal (`seqTransf`/`seqLSTM`), cross-encoder
+and 3d-patch checkpoints are rejected by this meanP adapter. Missing trained
+weights are never substituted with base CLIP weights. See [model details and
+checkpoint requirements](docs/models.md).
+
+Download the trained Searchium checkpoint once (approximately 605 MB):
+
+```powershell
+New-Item -ItemType Directory -Force "S:\video_retrieval\models" | Out-Null
+Invoke-WebRequest -Uri "https://huggingface.co/Searchium-ai/clip4clip-webvid150k/resolve/main/pytorch_model.bin" -OutFile "S:\video_retrieval\models\clip4clip_webvid150k_hf.bin"
+
+# Extract CLIP4Clip on all three datasets, reusing any compatible caches.
+.\.venv\Scripts\python.exe scripts\run_baselines.py --stage extract --models clip4clip --clip4clip-checkpoint "S:\video_retrieval\models\clip4clip_webvid150k_hf.bin"
+
+# Evaluate the saved bundles, permitting explicitly reported omitted items.
+foreach ($dataset in @("msr_vtt", "vatex", "activitynet_captions")) {
+    .\.venv\Scripts\python.exe scripts\evaluate_baselines.py --features-dir "S:\video_retrieval\$dataset\features\clip4clip_vit_b32_12f_meanP" --allow-incomplete
+}
+```
+
+If ActivityNet extraction has an unreadable segment, it saves the partial bundle
+before exiting with an incomplete-extraction error. Run the evaluation commands
+after that exit. Verify omissions match across models before comparing metrics;
+the strict cross-model comparison command still requires complete bundles.
+Searchium is a WebVid-150k trained checkpoint, so identify it by that source in
+your report rather than as the original paper's MSR-VTT fine-tuned checkpoint.
 
 CLIP and InternVideo2 download weights/tokenizers on first extraction. If InternVideo2 access is gated, accept the conditions on its model page and authenticate with Hugging Face. Local overrides: `--clip-checkpoint DIR`, `--internvideo2-checkpoint FILE`.
 
@@ -51,7 +80,7 @@ CLIP and InternVideo2 download weights/tokenizers on first extraction. If Intern
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\extract_features.py --config configs\clip.yaml --dataset vatex
-.\.venv\Scripts\python.exe scripts\extract_features.py --model clip4clip --dataset msrvtt --checkpoint "S:\video_retrieval\models\clip4clip_meanP.bin"
+.\.venv\Scripts\python.exe scripts\extract_features.py --model clip4clip --dataset msrvtt --checkpoint "S:\video_retrieval\models\clip4clip_webvid150k_hf.bin"
 .\.venv\Scripts\python.exe scripts\extract_features.py --model internvideo2 --dataset activitynet
 ```
 

@@ -86,3 +86,15 @@ def test_clip4clip_cannot_infer_smaller_model_from_missing_layers():
     checkpoint={f'clip.{key}':torch.empty(shape,device='meta') for key,shape in shapes.items()}
     with pytest.raises(ValueError,match='12'):
         build_trained_clip(checkpoint)
+
+
+def test_clip4clip_rejects_non224_image_position_embeddings():
+    shapes={'visual.conv1.weight':(768,3,32,32),'visual.proj':(768,512),
+            'text_projection':(512,512),'token_embedding.weight':(49408,512),
+            'positional_embedding':(77,512), 'visual.positional_embedding':(65,768)}
+    state={f'clip.{key}':torch.empty(shape,device='meta') for key,shape in shapes.items()}
+    for prefix in ('visual.transformer.resblocks.', 'transformer.resblocks.'):
+        for i in range(12):
+            state[f'clip.{prefix}{i}.attn.in_proj_weight']=torch.empty((1,),device='meta')
+    with pytest.raises(ValueError,match='visual.positional_embedding'):
+        build_trained_clip(state)
