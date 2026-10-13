@@ -172,15 +172,30 @@ def test_combined_search_checks_effective_precision(tmp_path):
         service.search('alpha', 'clip')
 
 
-def test_unknown_precision_prevents_combined_search(tmp_path):
+@pytest.mark.parametrize('stored_precision', ['missing', None])
+def test_matching_legacy_galleries_support_combined_search(tmp_path, stored_precision):
     from visual_retrieval.demo.service import SearchService
     for key in ('a', 'b'):
         folder = saved_gallery(tmp_path / key)
         manifest = json.loads((folder / 'manifest.json').read_text())
-        manifest.pop('effective_precision')
+        if stored_precision == 'missing':
+            manifest.pop('effective_precision')
+        else:
+            manifest['effective_precision'] = stored_precision
         write_json(folder / 'manifest.json', manifest)
     service = SearchService([make_spec(tmp_path / 'a', 'a'), make_spec(tmp_path / 'b', 'b')], 'cpu', lambda *a: Encoder())
     assert service.search('alpha', 'clip', 'a')
+    assert {row['dataset'] for row in service.search('alpha', 'clip')} == {'a', 'b'}
+
+
+def test_recorded_and_unknown_precision_are_not_silently_combined(tmp_path):
+    from visual_retrieval.demo.service import SearchService
+    saved_gallery(tmp_path / 'a')
+    folder = saved_gallery(tmp_path / 'b')
+    manifest = json.loads((folder / 'manifest.json').read_text())
+    manifest.pop('effective_precision')
+    write_json(folder / 'manifest.json', manifest)
+    service = SearchService([make_spec(tmp_path / 'a', 'a'), make_spec(tmp_path / 'b', 'b')], 'cpu', lambda *a: Encoder())
     with pytest.raises(ValueError, match='compatible'):
         service.search('alpha', 'clip')
 

@@ -141,7 +141,12 @@ Combined search accepts only matching checkpoint provenance, tokenizer,
 preprocessing, requested and effective extraction precision, and feature dimensions for the selected model. Full
 checkpoint signatures (including stored paths) are compared conservatively. If
 those settings differ, choose one dataset or extract matching galleries. Galleries
-without recorded effective precision support individual search only. CUDA query
+without recorded effective precision can be combined when all selected galleries
+lack that field and their other saved settings match. The summary shows
+"effective precision not recorded": historical dtype equality cannot be verified,
+and query precision follows the saved requested setting. This supports older
+bundles and runs that reused all cached features without loading an encoder.
+Recorded and unknown effective precision are not combined. CUDA query
 encoding must match recorded effective precision; explicit CPU mode uses fp32. IDs are
 namespaced by dataset, so equal IDs in different collections stay distinct.
 

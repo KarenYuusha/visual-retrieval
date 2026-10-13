@@ -58,6 +58,17 @@ def test_ui_has_minimal_controls_and_default_combined_gallery(tmp_path):
     assert any(d['api_name'] == 'search' for d in config['dependencies'])
 
 
+def test_legacy_precision_is_visible_in_search_summary(tmp_path):
+    from visual_retrieval.demo.app import DemoController
+    from visual_retrieval.demo.service import SearchService
+    folder = saved_gallery(tmp_path / 'a')
+    manifest = json.loads((folder / 'manifest.json').read_text())
+    manifest.pop('effective_precision')
+    (folder / 'manifest.json').write_text(json.dumps(manifest))
+    service = SearchService([make_spec(tmp_path / 'a', 'a')], 'cpu', lambda *a: Encoder())
+    assert 'effective precision not recorded' in DemoController(service, None).summary('clip')
+
+
 def test_demo_cli_help_and_preflight_do_not_load_a_model(tmp_path):
     script = Path(__file__).resolve().parents[1] / 'scripts/demo.py'
     subprocess.run([sys.executable, str(script), '--help'], check=True, cwd=tmp_path, capture_output=True)

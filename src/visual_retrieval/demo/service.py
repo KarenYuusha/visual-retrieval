@@ -81,10 +81,10 @@ class SearchService:
                     effective = manifest.get('effective_precision')
                     if effective not in (None, 'fp32', 'fp16', 'bf16'):
                         raise ValueError('Invalid effective extraction precision.')
-                    # Unknown precision permits individual search, but cannot prove
-                    # compatibility across independently extracted galleries.
-                    identity += json.dumps({'effective_precision': effective,
-                        'unknown_gallery': str(folder.resolve()) if effective is None else None}, sort_keys=True)
+                    # Legacy/all-cache runs may omit effective precision. Let such
+                    # galleries share the recorded encoder settings; do not invent
+                    # a historical dtype or mix unknown and recorded precision.
+                    identity += json.dumps({'effective_precision': effective}, sort_keys=True)
                     requested = manifest['requested_video_ids']
                     if set(ids) - set(requested):
                         raise ValueError('Gallery includes unrequested items.')

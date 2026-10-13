@@ -16,7 +16,8 @@ from test_demo_media import source_video
 
 
 @pytest.mark.skipif(os.environ.get('VR_BROWSER_TEST') != '1', reason='Opt-in Playwright integration')
-def test_authenticated_browser_search_filters_and_segment_delivery(tmp_path, monkeypatch):
+@pytest.mark.parametrize('legacy_precision', [False, True])
+def test_authenticated_browser_search_filters_and_segment_delivery(tmp_path, monkeypatch, legacy_precision):
     pytest.importorskip('gradio')
     playwright = pytest.importorskip('playwright.sync_api')
     from visual_retrieval.demo.service import SearchService
@@ -30,6 +31,10 @@ def test_authenticated_browser_search_filters_and_segment_delivery(tmp_path, mon
         for model in ('clip', 'clip4clip', 'internvideo2'):
             folder = saved_gallery(root, model, ids=tuple(f'video{i}' for i in range(5)),
                                    features=[[1,0],[.9,.1],[.8,.2],[.7,.3],[.6,.4]])
+            if legacy_precision:
+                manifest = json.loads((folder / 'manifest.json').read_text())
+                manifest.pop('effective_precision')
+                (folder / 'manifest.json').write_text(json.dumps(manifest))
             if key == 'activitynet':
                 manifest = json.loads((folder / 'manifest.json').read_text())
                 manifest['protocol'] = 'combined_subset_activitynet_segments'

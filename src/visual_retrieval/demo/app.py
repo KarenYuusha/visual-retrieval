@@ -54,6 +54,8 @@ class DemoController:
         missing = sum(omitted[key] for key in selected)
         if missing:
             text += f' · {missing} omitted'
+        if any(self.service.galleries[(model, key)]['effective_precision'] is None for key in selected):
+            text += ' · effective precision not recorded'
         return text
 
     def search(self, text, model, dataset):
