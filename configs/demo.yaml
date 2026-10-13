@@ -1,0 +1,26 @@
+# Optional explicit registry. Relative feature paths are resolved under each root.
+# Without --config, the same three datasets are discovered under --base-root.
+default_model: internvideo2
+top_k: 10
+datasets:
+  msrvtt:
+    label: MSR-VTT
+    root: S:/video_retrieval/msr_vtt
+    features:
+      clip: features/clip_vit_b32_12f_mean
+      clip4clip: features/clip4clip_vit_b32_12f_meanP
+      internvideo2: features/internvideo2_stage2_1b_all
+  vatex:
+    label: VATEX
+    root: S:/video_retrieval/vatex
+    features:
+      clip: features/clip_vit_b32_12f_mean
+      clip4clip: features/clip4clip_vit_b32_12f_meanP
+      internvideo2: features/internvideo2_stage2_1b_all
+  activitynet:
+    label: ActivityNet
+    root: S:/video_retrieval/activitynet_captions
+    features:
+      clip: features/clip_vit_b32_12f_mean
+      clip4clip: features/clip4clip_vit_b32_12f_meanP
+      internvideo2: features/internvideo2_stage2_1b_all

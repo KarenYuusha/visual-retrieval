@@ -29,6 +29,12 @@ For pip: `py -3.11 -m venv .venv`, then `.\.venv\Scripts\python.exe -m pip insta
 
 ## Check data and run baselines
 
+For the minimal Gradio text-to-video demo, install `requirements-demo.txt`, then
+run `.\.venv\Scripts\python.exe scripts\demo.py`. It defaults to all available
+datasets and supports CLIP, CLIP4Clip and InternVideo2. To open it from a laptop on
+another network, set `VR_DEMO_USERNAME` and `VR_DEMO_PASSWORD` and launch with
+`--share`. See [demo installation, configuration and remote access](docs/demo.md).
+
 ```powershell
 # File/annotation checks only; no checkpoint download or video decoding
 .\.venv\Scripts\python.exe scripts\run_baselines.py --stage check
@@ -176,7 +182,7 @@ Extraction reuses valid caches; source-video changes invalidate individual embed
 
 Search loads the matching checkpoint from saved provenance. Results include source-video paths and segment timestamps. `--data-root` relocates playback paths.
 
-The interaction package includes latest/accumulated query history and normalized relevance feedback, with multi-turn session evaluation. See [session format and experiments](docs/interaction.md). A graphical UI is a later milestone; this refactor delivers the shared baseline and interaction backend.
+The interaction package includes latest/accumulated query history and normalized relevance feedback, with multi-turn session evaluation. See [session format and experiments](docs/interaction.md). The Gradio demo provides text-to-video search; query refinement and relevance feedback are available in the backend and can be added to the UI later.
 
 ## Code structure and compatibility
 

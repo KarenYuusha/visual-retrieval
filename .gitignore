@@ -229,3 +229,6 @@ __marimo__/
 # Feature extraction application sources are versioned.
 !src/visual_retrieval/features/
 !src/visual_retrieval/features/*.py
+
+# Generated browser previews are reproducible and stay local.
+**/demo_cache/
