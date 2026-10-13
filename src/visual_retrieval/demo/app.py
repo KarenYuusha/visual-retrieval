@@ -14,14 +14,18 @@ from .service import SearchService
 
 LABELS = {'clip': 'CLIP', 'clip4clip': 'CLIP4Clip', 'internvideo2': 'InternVideo2'}
 CSS = """
-.gradio-container {max-width:1120px !important; margin:auto !important; padding:44px 24px !important;}
+.gradio-container {width:100% !important; max-width:1120px !important; margin:auto !important; padding:44px 24px !important;}
 #heading h1 {font-size:28px; font-weight:550; letter-spacing:-.8px; margin:0 0 18px;}
 #search-row {gap:12px; align-items:stretch;}
 #query textarea {font-size:16px; padding:15px 18px; border-radius:12px;}
 #search-button {border-radius:12px; min-height:54px;}
-#choices {max-width:470px; margin:10px 0 2px; gap:12px;}
+#choices {max-width:610px; margin:10px 0 2px; gap:12px; align-items:end;}
+#top-k-choice {max-width:110px;}
 #summary {color:#727873; font-size:13px; min-height:24px;}
 #results {border:none; background:transparent;}
+#results .grid-wrap {min-height:0 !important; max-height:none !important; overflow:visible;}
+#results .grid-container {grid-template-columns:repeat(auto-fill,minmax(min(100%,180px),1fr)) !important; grid-auto-rows:auto; gap:12px;}
+#results .thumbnail-lg {aspect-ratio:16/10; height:auto;}
 #results .caption {font-size:12px;}
 #selected-preview {margin-top:20px;}
 #selection-detail {font-size:13px; color:#727873;}
@@ -58,9 +62,9 @@ class DemoController:
             text += ' · effective precision not recorded'
         return text
 
-    def search(self, text, model, dataset):
+    def search(self, text, model, dataset, top_k=None):
         started = time.perf_counter()
-        results = self.service.search(text, model, dataset, self.top_k)
+        results = self.service.search(text, model, dataset, self.top_k if top_k is None else top_k)
         def thumbnail(item):
             try:
                 return str(self.media.thumbnail(item)), False
@@ -70,7 +74,7 @@ class DemoController:
             thumbnails = list(pool.map(thumbnail, results))
         images = [(path, f'{row["rank"]:02d} · {row["dataset_label"]} · {row["item_id"]}')
                   for row, (path, _) in zip(results, thumbnails)]
-        status = f'{self.summary(model, dataset)} · {time.perf_counter() - started:.2f}s'
+        status = f'Showing {len(results)} · {self.summary(model, dataset)} · {time.perf_counter() - started:.2f}s'
         if any(failed for _, failed in thumbnails):
             status += ' · Some previews unavailable'
         return images, results, status
@@ -102,8 +106,10 @@ def build_demo(service, media, default_model='internvideo2', top_k=10):
                                 label='Model', show_label=False, container=False, filterable=False, elem_id='model-choice')
             dataset = gr.Dropdown(service.dataset_choices(initial), value='all', label='Dataset',
                                   show_label=False, container=False, filterable=False, elem_id='dataset-choice')
+            count = gr.Number(value=top_k, minimum=1, maximum=100, step=1, precision=0,
+                              label='Top K', min_width=85, scale=0, elem_id='top-k-choice')
         status = gr.Markdown(controller.summary(initial), elem_id='summary')
-        results = gr.Gallery(show_label=False, columns=[5,5,3,2,2,2], height='auto', object_fit='contain',
+        results = gr.Gallery(show_label=False, columns=5, fit_columns=False, height='auto', object_fit='contain',
                              allow_preview=False, interactive=False, buttons=[], elem_id='results')
         state = gr.State([])
         context = gr.State(dict(revision=0, selection=0, model=initial, dataset='all'))
@@ -112,13 +118,13 @@ def build_demo(service, media, default_model='internvideo2', top_k=10):
                               height=360, buttons=[])
             details = gr.Markdown(elem_id='selection-detail')
 
-        def do_search(text, chosen_model, chosen_dataset, ctx):
+        def do_search(text, chosen_model, chosen_dataset, chosen_top_k, ctx):
             if (chosen_model, chosen_dataset) != (ctx['model'], ctx['dataset']):
                 return (gr.skip(),) * 6
             ctx['revision'] += 1
             revision = ctx['revision']
             try:
-                images, rows, message = controller.search(text, chosen_model, chosen_dataset)
+                images, rows, message = controller.search(text, chosen_model, chosen_dataset, chosen_top_k)
                 for row in rows:
                     row['view_revision'] = revision
                 answer = images, rows, message, None, '', gr.update(visible=False)
@@ -130,7 +136,7 @@ def build_demo(service, media, default_model='internvideo2', top_k=10):
             return answer if ctx['revision'] == revision else (gr.skip(),) * 6
 
         outputs = [results, state, status, player, details, selected]
-        event_args = dict(fn=do_search, inputs=[query,model,dataset,context], outputs=outputs,
+        event_args = dict(fn=do_search, inputs=[query,model,dataset,count,context], outputs=outputs,
                           concurrency_id='inference', concurrency_limit=1, show_progress='minimal',
                           trigger_mode='always_last', api_visibility='undocumented')
         click_event = button.click(api_name='search', **event_args)

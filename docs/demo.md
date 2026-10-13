@@ -70,7 +70,11 @@ datasets. If InternVideo2 features are absent, the first available model is used
 The initial encoder is warmed before launch; large checkpoint loading can take
 time. Use `--no-warmup` to launch first and load on the first search instead.
 
-Enter a description and press Enter or Search. Results are ranked by exact cosine
+Enter a description, set **Top K** (1–100; default 10), and press Enter or Search.
+Changing Top K applies to the next search. If the gallery has fewer items than
+requested, all available items are returned; the summary shows the returned count.
+Thumbnails form a grid whose column count automatically adjusts to the available
+width, including when the browser is resized. Results are ranked by exact cosine
 similarity. Select a thumbnail to prepare and play its video. ActivityNet playback
 is trimmed to the retrieved interval. Previews are silent, matching the downloaded
 datasets. Similarities are not confidence probabilities.

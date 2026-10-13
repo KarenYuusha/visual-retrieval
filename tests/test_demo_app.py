@@ -53,6 +53,8 @@ def test_ui_has_minimal_controls_and_default_combined_gallery(tmp_path):
     types = [c['type'] for c in config['components']]
     assert types.count('textbox') == 1 and types.count('button') == 1
     assert types.count('dropdown') == 2 and types.count('gallery') == 1 and types.count('video') == 1
+    count = next(c for c in config['components'] if c['props'].get('elem_id') == 'top-k-choice')
+    assert count['type'] == 'number' and count['props']['value'] == 10
     dataset = next(c for c in config['components'] if c['props'].get('elem_id') == 'dataset-choice')
     assert dataset['props']['value'] == 'all'
     assert any(d['api_name'] == 'search' for d in config['dependencies'])
@@ -67,6 +69,24 @@ def test_legacy_precision_is_visible_in_search_summary(tmp_path):
     (folder / 'manifest.json').write_text(json.dumps(manifest))
     service = SearchService([make_spec(tmp_path / 'a', 'a')], 'cpu', lambda *a: Encoder())
     assert 'effective precision not recorded' in DemoController(service, None).summary('clip')
+
+
+def test_controller_search_uses_requested_top_k_and_preserves_ranking(tmp_path):
+    from visual_retrieval.demo.app import DemoController
+    from visual_retrieval.demo.service import SearchService
+    saved_gallery(tmp_path / 'a', ids=('best', 'middle', 'last'), features=[[1, 0], [.8, .6], [0, 1]])
+    service = SearchService([make_spec(tmp_path / 'a', 'a')], 'cpu', lambda *a: Encoder())
+    class Media:
+        def thumbnail(self, item):
+            return tmp_path / 'thumb.jpg'
+    controller = DemoController(service, Media())
+    for count, expected in [(1, ['best']), (2, ['best', 'middle']), (100, ['best', 'middle', 'last'])]:
+        images, rows, _ = controller.search('alpha', 'clip', 'all', count)
+        assert [row['item_id'] for row in rows] == expected
+        assert len(images) == len(expected)
+    for count in (0, 101, 2.5, True):
+        with pytest.raises(ValueError):
+            controller.search('alpha', 'clip', 'all', count)
 
 
 def test_demo_cli_help_and_preflight_do_not_load_a_model(tmp_path):
@@ -101,7 +121,7 @@ def test_selector_changes_discard_pending_search_and_preview(tmp_path):
     funcs = {f.fn.__name__: f.fn for f in demo.fns.values() if f.fn}
     context = dict(revision=0, selection=0, model='clip', dataset='all')
     with ThreadPoolExecutor() as pool:
-        pending = pool.submit(funcs['do_search'], 'alpha', 'clip', 'all', context)
+        pending = pool.submit(funcs['do_search'], 'alpha', 'clip', 'all', 10, context)
         assert entered.wait(5)
         funcs['change_dataset']('clip', 'a', context)
         release.set()
