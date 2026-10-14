@@ -46,7 +46,7 @@ def test_authenticated_browser_search_filters_and_segment_delivery(tmp_path, mon
         specs.append(make_spec(root, key, ('clip', 'clip4clip', 'internvideo2')))
     service = SearchService(specs, 'cpu', lambda *a: Encoder())
     media = MediaCache(tmp_path / 'cache')
-    app = build_demo(service, media)
+    app = build_demo(service, media, page_size=4, min_score=-1, score_margin=2)
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
     app.launch(server_name='127.0.0.1', server_port=port, prevent_thread_lock=True,
@@ -64,7 +64,10 @@ def test_authenticated_browser_search_filters_and_segment_delivery(tmp_path, mon
             page.get_by_role('button', name='Login', exact=True).click()
             page.locator('#query textarea').fill('alpha')
             page.locator('#search-button').click()
-            page.wait_for_function("document.querySelectorAll('#results img').length === 10")
+            page.wait_for_function("document.querySelectorAll('#results img').length === 4")
+            assert page.locator('#top-k-choice').count() == 0
+            assert page.locator('#results').evaluate("(grid)=>{const s=getComputedStyle(grid);return s.borderTopWidth === '0px' && s.outlineWidth === '0px' && s.boxShadow === 'none'}")
+            assert page.get_by_role('button', name='Previous', exact=True).is_disabled()
             # Layout must form rows of multiple cards and respond without a new search.
             def column_count():
                 return page.locator('#results .grid-container').evaluate(
@@ -100,23 +103,29 @@ def test_authenticated_browser_search_filters_and_segment_delivery(tmp_path, mon
             page.wait_for_function("document.querySelector('#summary').innerText.includes('1 dataset')")
             page.wait_for_timeout(500)  # Allow selector cancellation to finish before the next request.
             page.locator('#query textarea').press('Enter')
-            page.wait_for_function("document.querySelectorAll('#results img').length === 5")
+            page.wait_for_function("document.querySelectorAll('#results img').length === 4")
             page.locator('#model-choice').click()
             page.get_by_role('option', name='CLIP', exact=True).click()
             page.wait_for_function("document.querySelector('#summary').innerText.includes('2 datasets')")
             page.wait_for_timeout(500)
             page.locator('#search-button').click()
-            page.wait_for_function("document.querySelectorAll('#results img').length === 10")
-            count = page.locator('#top-k-choice input')
-            count.fill('3')
-            page.locator('#search-button').click()
-            page.wait_for_function("document.querySelectorAll('#results img').length === 3")
-            count.fill('1')
+            page.wait_for_function("document.querySelectorAll('#results img').length === 4")
+            page.locator('#next-page').click()
+            page.wait_for_function("document.querySelector('#page-label').innerText.includes('5–8 of 10')")
+            page.wait_for_function("document.querySelector('#results .caption-label')?.innerText.startsWith('05')")
+            page.locator('#results img').nth(1).click()
+            page.locator('video').wait_for(state='visible')
+            page.wait_for_function("document.querySelector('#selection-detail')?.innerText.includes('video2')")
+            assert '1.00–2.00s' in page.locator('#selection-detail').inner_text()
+            page.locator('#next-page').click()
+            page.wait_for_function("document.querySelectorAll('#results img').length === 2")
+            assert page.get_by_role('button', name='Next', exact=True).is_disabled()
+            page.locator('#previous-page').click()
+            page.wait_for_function("document.querySelector('#page-label').innerText.includes('5–8 of 10')")
+            page.locator('#query textarea').fill('beta')
             page.locator('#query textarea').press('Enter')
-            page.wait_for_function("document.querySelectorAll('#results img').length === 1")
-            count.fill('100')
-            page.locator('#search-button').click()
-            page.wait_for_function("document.querySelectorAll('#results img').length === 10")
+            page.wait_for_function("document.querySelector('#page-label').innerText.includes('1–4 of 10')")
+            assert page.get_by_role('button', name='Previous', exact=True).is_disabled()
             browser.close()
     finally:
         app.close(); service.close()

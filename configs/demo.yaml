@@ -1,7 +1,6 @@
 # Optional explicit registry. Relative feature paths are resolved under each root.
 # Without --config, the same three datasets are discovered under --base-root.
 default_model: internvideo2
-top_k: 10
 datasets:
   msrvtt:
     label: MSR-VTT

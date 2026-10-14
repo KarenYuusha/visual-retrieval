@@ -70,10 +70,20 @@ datasets. If InternVideo2 features are absent, the first available model is used
 The initial encoder is warmed before launch; large checkpoint loading can take
 time. Use `--no-warmup` to launch first and load on the first search instead.
 
-Enter a description, set **Top K** (1–100; default 10), and press Enter or Search.
-Changing Top K applies to the next search. If the gallery has fewer items than
-requested, all available items are returned; the summary shows the returned count.
-Thumbnails form a grid whose column count automatically adjusts to the available
+Enter a description and press Enter or Search. The result count varies by query:
+the demo scores the full selected gallery and includes clips whose cosine score
+is at least `max(min_score, best_score - score_margin)`. The initial heuristic uses
+`min_score=0.20` and `score_margin=0.05`. These are starting settings, not calibrated
+relevance probabilities. Generic captions, model score distributions, and near
+duplicates can cause false positives or missed relevant clips; tune each model
+using error analysis before treating the count as a reliable match estimate.
+A query can return zero results; there is no fixed Top K or forced fallback.
+
+The borderless thumbnail grid shows 20 results per page. Previous/Next controls
+appear when more results are available, showing the range and total. Pagination
+reuses the ranked results without running inference again and prepares thumbnails
+only for the visible page. New searches and model/dataset changes reset to page 1
+and clear the selected video. Columns automatically adjust to the available
 width, including when the browser is resized. Results are ranked by exact cosine
 similarity. Select a thumbnail to prepare and play its video. ActivityNet playback
 is trimmed to the retrieved interval. Previews are silent, matching the downloaded
@@ -154,7 +164,8 @@ Recorded and unknown effective precision are not combined. CUDA query
 encoding must match recorded effective precision; explicit CPU mode uses fp32. IDs are
 namespaced by dataset, so equal IDs in different collections stay distinct.
 
-Other options: `--model clip`, `--top-k 10`, `--port 7861`, `--device cpu` (explicit
+Other options: `--model clip`, `--page-size 20`, `--min-score 0.20`,
+`--score-margin 0.05`, `--port 7861`, `--device cpu` (explicit
 CPU inference), `--cache-dir PATH`. The default media cache is
 `S:\video_retrieval\demo_cache`. It contains reproducible JPG thumbnails and
 browser-compatible H.264 MP4 previews; stop the app before deleting it to reclaim

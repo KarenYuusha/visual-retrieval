@@ -19,7 +19,7 @@ class DatasetSpec:
 class DemoConfig:
     datasets: list
     default_model: str = 'internvideo2'
-    top_k: int = 10
+    top_k: int = 10  # Legacy YAML compatibility; the demo now filters by similarity.
 
     @classmethod
     def defaults(cls, base=DEFAULT_BASE):

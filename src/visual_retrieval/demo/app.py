@@ -3,6 +3,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 import html
 import logging
+import math
 import os
 from pathlib import Path
 import time
@@ -19,14 +20,15 @@ CSS = """
 #search-row {gap:12px; align-items:stretch;}
 #query textarea {font-size:16px; padding:15px 18px; border-radius:12px;}
 #search-button {border-radius:12px; min-height:54px;}
-#choices {max-width:610px; margin:10px 0 2px; gap:12px; align-items:end;}
-#top-k-choice {max-width:110px;}
+#choices {max-width:470px; margin:10px 0 2px; gap:12px;}
 #summary {color:#727873; font-size:13px; min-height:24px;}
-#results {border:none; background:transparent;}
-#results .grid-wrap {min-height:0 !important; max-height:none !important; overflow:visible;}
+#results {border:0 !important; outline:none !important; box-shadow:none !important; background:transparent !important;}
+#results .grid-wrap {min-height:0 !important; max-height:none !important; overflow:visible; padding:0;}
 #results .grid-container {grid-template-columns:repeat(auto-fill,minmax(min(100%,180px),1fr)) !important; grid-auto-rows:auto; gap:12px;}
 #results .thumbnail-lg {aspect-ratio:16/10; height:auto;}
 #results .caption {font-size:12px;}
+#pagination {max-width:430px; margin:16px auto; align-items:center; gap:12px;}
+#page-label {font-size:13px; text-align:center;}
 #selected-preview {margin-top:20px;}
 #selection-detail {font-size:13px; color:#727873;}
 footer {display:none !important;}
@@ -47,8 +49,11 @@ def auth_from_env(share, environ=None):
 
 
 class DemoController:
-    def __init__(self, service, media, top_k=10):
-        self.service, self.media, self.top_k = service, media, top_k
+    def __init__(self, service, media, page_size=20, min_score=.2, score_margin=.05):
+        if type(page_size) is not int or not 1 <= page_size <= 100:
+            raise ValueError('Use a page size from 1 to 100.')
+        self.service, self.media, self.page_size = service, media, page_size
+        self.min_score, self.score_margin = min_score, score_margin
 
     def summary(self, model, dataset='all'):
         counts = self.service.gallery_counts(model)
@@ -62,22 +67,42 @@ class DemoController:
             text += ' · effective precision not recorded'
         return text
 
-    def search(self, text, model, dataset, top_k=None):
+    def search(self, text, model, dataset):
         started = time.perf_counter()
-        results = self.service.search(text, model, dataset, self.top_k if top_k is None else top_k)
+        results = self.service.search(text, model, dataset, top_k=None,
+                                      min_score=self.min_score, score_margin=self.score_margin)
+        images, _, label, _ = self.page(results, 0)
+        status = f'{len(results):,} results · {self.summary(model, dataset)} · {time.perf_counter() - started:.2f}s'
+        if 'unavailable' in label:
+            status += ' · Some previews unavailable'
+        if not results:
+            status = 'No results above the similarity cutoff · ' + self.summary(model, dataset)
+        return images, results, status
+
+    def page_info(self, rows, page):
+        if type(page) is not int:
+            raise ValueError('Invalid result page.')
+        pages = max(1, math.ceil(len(rows) / self.page_size))
+        page = max(0, min(page, pages - 1))
+        start, end = page * self.page_size, min((page + 1) * self.page_size, len(rows))
+        label = f'Page {page + 1} / {pages} · {start + 1}–{end} of {len(rows):,}' if rows else 'No results'
+        return start, end, label, page
+
+    def page(self, rows, page=0):
+        start, end, label, page = self.page_info(rows, page)
+        visible = rows[start:end]
         def thumbnail(item):
             try:
                 return str(self.media.thumbnail(item)), False
             except (MediaError, OSError):
                 return str(self.media.placeholder()), True
         with ThreadPoolExecutor(max_workers=2) as pool:
-            thumbnails = list(pool.map(thumbnail, results))
+            thumbnails = list(pool.map(thumbnail, visible))
         images = [(path, f'{row["rank"]:02d} · {row["dataset_label"]} · {row["item_id"]}')
-                  for row, (path, _) in zip(results, thumbnails)]
-        status = f'Showing {len(results)} · {self.summary(model, dataset)} · {time.perf_counter() - started:.2f}s'
+                  for row, (path, _) in zip(visible, thumbnails)]
         if any(failed for _, failed in thumbnails):
-            status += ' · Some previews unavailable'
-        return images, results, status
+            label += ' · Some previews unavailable'
+        return images, visible, label, page
 
     def select(self, results, index):
         if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(results):
@@ -91,9 +116,9 @@ class DemoController:
         return path, description
 
 
-def build_demo(service, media, default_model='internvideo2', top_k=10):
+def build_demo(service, media, default_model='internvideo2', page_size=20, min_score=.2, score_margin=.05):
     import gradio as gr
-    controller = DemoController(service, media, top_k)
+    controller = DemoController(service, media, page_size, min_score, score_margin)
     initial = default_model if default_model in service.available_models else service.available_models[0]
     with gr.Blocks(title='Video search', analytics_enabled=False) as demo:
         gr.Markdown('# Video search', elem_id='heading')
@@ -106,45 +131,65 @@ def build_demo(service, media, default_model='internvideo2', top_k=10):
                                 label='Model', show_label=False, container=False, filterable=False, elem_id='model-choice')
             dataset = gr.Dropdown(service.dataset_choices(initial), value='all', label='Dataset',
                                   show_label=False, container=False, filterable=False, elem_id='dataset-choice')
-            count = gr.Number(value=top_k, minimum=1, maximum=100, step=1, precision=0,
-                              label='Top K', min_width=85, scale=0, elem_id='top-k-choice')
         status = gr.Markdown(controller.summary(initial), elem_id='summary')
         results = gr.Gallery(show_label=False, columns=5, fit_columns=False, height='auto', object_fit='contain',
-                             allow_preview=False, interactive=False, buttons=[], elem_id='results')
+                             allow_preview=False, interactive=False, container=False, buttons=[], elem_id='results')
         state = gr.State([])
-        context = gr.State(dict(revision=0, selection=0, model=initial, dataset='all'))
+        all_state = gr.State([])
+        page_state = gr.State(0)
+        # Normal input is captured by the browser at click time. Unlike gr.State,
+        # it cannot silently become a newer view while an event is queued.
+        view_token = gr.Textbox(value='0:0', visible=False)
+        context = gr.State(dict(revision=0, selection=0, page=0, model=initial, dataset='all'))
+        with gr.Row(visible=False, elem_id='pagination') as navigation:
+            previous = gr.Button('Previous', size='sm', min_width=80, scale=0, elem_id='previous-page')
+            page_label = gr.Markdown('', elem_id='page-label')
+            next_page = gr.Button('Next', size='sm', min_width=80, scale=0, elem_id='next-page')
         with gr.Column(visible=False, elem_id='selected-preview') as selected:
             player = gr.Video(show_label=False, interactive=False, autoplay=False, include_audio=False,
                               height=360, buttons=[])
             details = gr.Markdown(elem_id='selection-detail')
 
-        def do_search(text, chosen_model, chosen_dataset, chosen_top_k, ctx):
+        def view(rows, page, message, revision, images=None):
+            start, end, label, page = controller.page_info(rows, page)
+            if images is None:
+                images, _, label, page = controller.page(rows, page)
+            visible = [dict(row, view_revision=revision, view_page=page) for row in rows[start:end]]
+            return (gr.update(value=images, selected_index=None), visible, rows, page, message, label,
+                    gr.update(interactive=page > 0), gr.update(interactive=end < len(rows)),
+                    gr.update(visible=len(rows) > controller.page_size), None, '', gr.update(visible=False),
+                    f'{revision}:{page}')
+
+        def do_search(text, chosen_model, chosen_dataset, ctx):
             if (chosen_model, chosen_dataset) != (ctx['model'], ctx['dataset']):
-                return (gr.skip(),) * 6
+                return (gr.skip(),) * 13
             ctx['revision'] += 1
+            ctx['page'] = 0
             revision = ctx['revision']
             try:
-                images, rows, message = controller.search(text, chosen_model, chosen_dataset, chosen_top_k)
+                images, rows, message = controller.search(text, chosen_model, chosen_dataset)
                 for row in rows:
                     row['view_revision'] = revision
-                answer = images, rows, message, None, '', gr.update(visible=False)
+                answer = view(rows, 0, message, revision, images)
             except ValueError as error:
-                answer = [], [], str(error), None, '', gr.update(visible=False)
+                answer = view([], 0, str(error), revision, [])
             except Exception:
                 logging.exception('Search failed')
-                answer = [], [], 'Search failed. Check the PC terminal.', None, '', gr.update(visible=False)
-            return answer if ctx['revision'] == revision else (gr.skip(),) * 6
+                answer = view([], 0, 'Search failed. Check the PC terminal.', revision, [])
+            return answer if ctx['revision'] == revision else (gr.skip(),) * 13
 
-        outputs = [results, state, status, player, details, selected]
-        event_args = dict(fn=do_search, inputs=[query,model,dataset,count,context], outputs=outputs,
+        outputs = [results, state, all_state, page_state, status, page_label, previous, next_page, navigation, player, details, selected, view_token]
+        event_args = dict(fn=do_search, inputs=[query,model,dataset,context], outputs=outputs,
                           concurrency_id='inference', concurrency_limit=1, show_progress='minimal',
                           trigger_mode='always_last', api_visibility='undocumented')
         click_event = button.click(api_name='search', **event_args)
         submit_event = query.submit(api_name=False, **event_args)
 
-        def select_video(rows, ctx, evt: gr.EventData):
+        def select_video(rows, ctx, token, evt: gr.EventData):
             revision = ctx['revision']
-            if not rows or rows[0].get('view_revision') != revision or evt._data.get('index') is None:
+            page = ctx.get('page', 0)
+            if (token != f'{revision}:{page}' or not rows or rows[0].get('view_revision') != revision
+                    or rows[0].get('view_page', 0) != page or evt._data.get('index') is None):
                 return (gr.skip(),) * 3
             ctx['selection'] += 1
             selection = ctx['selection']
@@ -156,28 +201,46 @@ def build_demo(service, media, default_model='internvideo2', top_k=10):
             except Exception:
                 logging.exception('Playback failed')
                 answer = None, 'This preview could not be prepared.', gr.update(visible=True)
-            return answer if (revision, selection) == (ctx['revision'], ctx['selection']) else (gr.skip(),) * 3
-        select_event = results.select(select_video, inputs=[state,context], outputs=[player,details,selected],
+            return answer if (revision, selection, page) == (ctx['revision'], ctx['selection'], ctx.get('page', 0)) else (gr.skip(),) * 3
+        select_event = results.select(select_video, inputs=[state,context,view_token], outputs=[player,details,selected],
                        api_name=False, concurrency_id='media', concurrency_limit=2, show_progress='minimal')
 
+        def move_page(rows, page, message, ctx, token, direction):
+            revision = ctx['revision']
+            if token != f"{revision}:{ctx.get('page', 0)}" or not rows or rows[0].get('view_revision') != revision:
+                return (gr.skip(),) * 13
+            target = controller.page_info(rows, page + direction)[3]
+            ctx.update(page=target, selection=ctx['selection'] + 1)
+            answer = view(rows, target, message, revision)
+            return answer if (revision, target) == (ctx['revision'], ctx['page']) else (gr.skip(),) * 13
+        def go_previous(rows, page, message, ctx, token):
+            return move_page(rows, page, message, ctx, token, -1)
+        def go_next(rows, page, message, ctx, token):
+            return move_page(rows, page, message, ctx, token, 1)
+        page_args = dict(inputs=[all_state,page_state,status,context,view_token], outputs=outputs,
+                         concurrency_id='inference', concurrency_limit=1, show_progress='minimal', api_name=False)
+        previous_event = previous.click(go_previous, **page_args)
+        next_event = next_page.click(go_next, **page_args)
+
         def change_model(chosen_model, ctx):
-            ctx.update(revision=ctx['revision'] + 1, model=chosen_model, dataset='all')
-            return gr.update(choices=service.dataset_choices(chosen_model), value='all'), [], [], None, '', gr.update(visible=False), controller.summary(chosen_model)
+            ctx.update(revision=ctx['revision'] + 1, page=0, model=chosen_model, dataset='all')
+            return (gr.update(choices=service.dataset_choices(chosen_model), value='all'),
+                    *view([], 0, controller.summary(chosen_model), ctx['revision'], []))
         def warm_model(chosen_model):
             try:
                 service.warmup(chosen_model)
             except Exception:
                 logging.exception('Model warmup failed; the next search will retry')
-        cancel = [click_event, submit_event, select_event]
-        model.change(change_model, inputs=[model,context], outputs=[dataset,results,state,player,details,selected,status],
+        cancel = [click_event, submit_event, select_event, previous_event, next_event]
+        model.change(change_model, inputs=[model,context], outputs=[dataset,*outputs],
                      queue=False, api_name=False, cancels=cancel).then(
             warm_model, inputs=[model], outputs=[],
             concurrency_id='inference', concurrency_limit=1, show_progress='minimal', api_name=False)
         def change_dataset(m, d, ctx):
-            ctx.update(revision=ctx['revision'] + 1, model=m, dataset=d)
-            return [], [], None, '', gr.update(visible=False), controller.summary(m,d)
+            ctx.update(revision=ctx['revision'] + 1, page=0, model=m, dataset=d)
+            return view([], 0, controller.summary(m,d), ctx['revision'], [])
         dataset.change(change_dataset, inputs=[model,dataset,context],
-                       outputs=[results,state,player,details,selected,status], queue=False, api_name=False, cancels=cancel)
+                       outputs=outputs, queue=False, api_name=False, cancels=cancel)
     demo.queue(default_concurrency_limit=1, max_size=16)
     return demo
 
@@ -189,7 +252,9 @@ def main(argv=None):
     parser.add_argument('--cache-dir', type=Path, help='Generated thumbnails/previews; default BASE/demo_cache.')
     parser.add_argument('--model', choices=MODEL_NAMES, help='Initial model; otherwise use configuration default.')
     parser.add_argument('--device', choices=['cuda','cpu'], default='cuda')
-    parser.add_argument('--top-k', type=int)
+    parser.add_argument('--page-size', type=int, default=20)
+    parser.add_argument('--min-score', type=float, default=.2, help='Minimum cosine similarity (initial heuristic; tune per model).')
+    parser.add_argument('--score-margin', type=float, default=.05, help='Include results within this cosine gap of the best result.')
     parser.add_argument('--port', type=int, default=7860)
     parser.add_argument('--share', action='store_true', help='Password-protected temporary public Gradio link.')
     parser.add_argument('--no-warmup', action='store_true', help='Load the model on the first search instead of before launch.')
@@ -197,8 +262,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.config and args.base_root:
         parser.error('Use either --config or --base-root.')
-    if not 1 <= args.port <= 65535 or (args.top_k is not None and not 1 <= args.top_k <= 100):
-        parser.error('Use a valid port and top-k from 1 to 100.')
+    if not 1 <= args.port <= 65535 or not 1 <= args.page_size <= 100:
+        parser.error('Use a valid port and page size from 1 to 100.')
+    if not math.isfinite(args.min_score) or not -1 <= args.min_score <= 1 or not math.isfinite(args.score_margin) or not 0 <= args.score_margin <= 2:
+        parser.error('Use min-score from -1 to 1 and score-margin from 0 to 2.')
     base = args.base_root or DEFAULT_BASE
     try:
         auth = auth_from_env(args.share) if not args.check else None
@@ -228,7 +295,7 @@ def main(argv=None):
         if not args.no_warmup:
             print(f'Warming {initial} on {args.device}…', flush=True)
             service.warmup(initial)
-        app = build_demo(service, media, initial, args.top_k or config.top_k)
+        app = build_demo(service, media, initial, args.page_size, args.min_score, args.score_margin)
         import gradio as gr
         theme = gr.themes.Base(primary_hue='gray', neutral_hue='gray', font=['ui-sans-serif','system-ui','sans-serif'])
         app.launch(server_name='127.0.0.1', server_port=args.port, share=args.share, auth=auth,

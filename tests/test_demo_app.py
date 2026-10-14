@@ -51,10 +51,10 @@ def test_ui_has_minimal_controls_and_default_combined_gallery(tmp_path):
     demo = build_demo(service, None, default_model='clip')
     config = demo.get_config_file()
     types = [c['type'] for c in config['components']]
-    assert types.count('textbox') == 1 and types.count('button') == 1
+    assert sum(c['type'] == 'textbox' and c['props'].get('visible', True) for c in config['components']) == 1
+    assert types.count('button') == 3
     assert types.count('dropdown') == 2 and types.count('gallery') == 1 and types.count('video') == 1
-    count = next(c for c in config['components'] if c['props'].get('elem_id') == 'top-k-choice')
-    assert count['type'] == 'number' and count['props']['value'] == 10
+    assert not any(c['props'].get('elem_id') == 'top-k-choice' for c in config['components'])
     dataset = next(c for c in config['components'] if c['props'].get('elem_id') == 'dataset-choice')
     assert dataset['props']['value'] == 'all'
     assert any(d['api_name'] == 'search' for d in config['dependencies'])
@@ -71,22 +71,26 @@ def test_legacy_precision_is_visible_in_search_summary(tmp_path):
     assert 'effective precision not recorded' in DemoController(service, None).summary('clip')
 
 
-def test_controller_search_uses_requested_top_k_and_preserves_ranking(tmp_path):
+def test_controller_pagination_only_prepares_visible_media(tmp_path):
     from visual_retrieval.demo.app import DemoController
     from visual_retrieval.demo.service import SearchService
     saved_gallery(tmp_path / 'a', ids=('best', 'middle', 'last'), features=[[1, 0], [.8, .6], [0, 1]])
     service = SearchService([make_spec(tmp_path / 'a', 'a')], 'cpu', lambda *a: Encoder())
+    prepared = []
     class Media:
         def thumbnail(self, item):
+            prepared.append(item['item_id'])
             return tmp_path / 'thumb.jpg'
-    controller = DemoController(service, Media())
-    for count, expected in [(1, ['best']), (2, ['best', 'middle']), (100, ['best', 'middle', 'last'])]:
-        images, rows, _ = controller.search('alpha', 'clip', 'all', count)
-        assert [row['item_id'] for row in rows] == expected
-        assert len(images) == len(expected)
-    for count in (0, 101, 2.5, True):
-        with pytest.raises(ValueError):
-            controller.search('alpha', 'clip', 'all', count)
+    controller = DemoController(service, Media(), page_size=2, min_score=-1, score_margin=2)
+    images, rows, _ = controller.search('alpha', 'clip', 'all')
+    assert len(rows) == 3 and len(images) == 2
+    assert set(prepared) == {'best', 'middle'}
+    prepared.clear()
+    images, visible, label, page = controller.page(rows, 1)
+    assert [row['item_id'] for row in visible] == ['last']
+    assert prepared == ['last'] and page == 1 and '3–3 of 3' in label
+    assert visible[0]['rank'] == 3
+    assert controller.page([], 0)[2] == 'No results'
 
 
 def test_demo_cli_help_and_preflight_do_not_load_a_model(tmp_path):
@@ -121,7 +125,7 @@ def test_selector_changes_discard_pending_search_and_preview(tmp_path):
     funcs = {f.fn.__name__: f.fn for f in demo.fns.values() if f.fn}
     context = dict(revision=0, selection=0, model='clip', dataset='all')
     with ThreadPoolExecutor() as pool:
-        pending = pool.submit(funcs['do_search'], 'alpha', 'clip', 'all', 10, context)
+        pending = pool.submit(funcs['do_search'], 'alpha', 'clip', 'all', context)
         assert entered.wait(5)
         funcs['change_dataset']('clip', 'a', context)
         release.set()
@@ -130,9 +134,35 @@ def test_selector_changes_discard_pending_search_and_preview(tmp_path):
         context.update(dataset='all')
         rows = service.search('alpha', 'clip')
         rows[0]['view_revision'] = context['revision']
-        event = gr.SelectData(None, {'index':0, 'value':None})
-        pending = pool.submit(funcs['select_video'], rows, context, event)
+        token = f"{context['revision']}:0"
+        pending = pool.submit(funcs['go_next'], rows, 0, '1 result', context, token)
         assert entered.wait(5)
         funcs['change_dataset']('clip', 'a', context)
         release.set()
         assert all(x == gr.skip() for x in pending.result())
+        entered.clear(); release.clear()
+        context.update(dataset='all')
+        rows[0]['view_revision'] = context['revision']
+        event = gr.SelectData(None, {'index':0, 'value':None})
+        pending = pool.submit(funcs['select_video'], rows, context, f"{context['revision']}:0", event)
+        assert entered.wait(5)
+        funcs['change_dataset']('clip', 'a', context)
+        release.set()
+        assert all(x == gr.skip() for x in pending.result())
+
+
+def test_queued_old_view_events_cannot_act_on_latest_server_state(tmp_path):
+    gr = pytest.importorskip('gradio')
+    from visual_retrieval.demo.app import build_demo
+    from visual_retrieval.demo.service import SearchService
+    saved_gallery(tmp_path / 'a')
+    service = SearchService([make_spec(tmp_path / 'a', 'a')], 'cpu', lambda *a: Encoder())
+    # None media ensures any attempt to render/play is a failure.
+    demo = build_demo(service, None, 'clip')
+    funcs = {f.fn.__name__: f.fn for f in demo.fns.values() if f.fn}
+    current = dict(revision=2, selection=0, page=0, model='clip', dataset='all')
+    rows = [dict(service.search('alpha', 'clip')[0], view_revision=2, view_page=0)]
+    event = gr.SelectData(None, {'index': 0, 'value': None})
+    # Gradio substitutes latest State at execution; normal input retains click-time value.
+    assert all(x == gr.skip() for x in funcs['select_video'](rows, current, '1:0', event))
+    assert all(x == gr.skip() for x in funcs['go_next'](rows, 0, '1 result', current, '1:0'))

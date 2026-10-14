@@ -208,3 +208,27 @@ def test_cuda_query_precision_must_match_gallery(tmp_path):
     with pytest.raises(ValueError, match='Query precision'):
         service.search('alpha', 'clip')
     assert service._encoder is None
+
+
+def test_automatic_search_filters_full_gallery_and_varies_with_query(tmp_path):
+    from visual_retrieval.demo.service import SearchService
+    ids = tuple(f'clip{i}' for i in range(150))
+    features = [[1, 0]] * 120 + [[0, 1]] * 20 + [[-1, 0]] * 10
+    saved_gallery(tmp_path / 'a', ids=ids, features=features)
+    service = SearchService([make_spec(tmp_path / 'a', 'a')], 'cpu', lambda *a: Encoder())
+    alpha = service.search('alpha', 'clip', top_k=None, min_score=.2, score_margin=.05)
+    beta = service.search('beta', 'clip', top_k=None, min_score=.2, score_margin=.05)
+    assert [row['item_id'] for row in alpha] == list(ids[:120])
+    assert [row['item_id'] for row in beta] == list(ids[120:140])
+
+
+def test_automatic_search_can_return_zero_and_respects_relative_cutoff(tmp_path):
+    from visual_retrieval.demo.service import SearchService
+    saved_gallery(tmp_path / 'a', ids=('strong', 'weak'), features=[[.8,.6], [.6,.8]])
+    service = SearchService([make_spec(tmp_path / 'a', 'a')], 'cpu', lambda *a: Encoder())
+    assert service.search('alpha', 'clip', top_k=None, min_score=.9) == []
+    rows = service.search('alpha', 'clip', top_k=None, min_score=.2, score_margin=.1)
+    assert [row['item_id'] for row in rows] == ['strong']
+    for value in (float('nan'), True, 1.1):
+        with pytest.raises(ValueError):
+            service.search('alpha', 'clip', top_k=None, min_score=value)

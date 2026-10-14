@@ -144,11 +144,17 @@ class SearchService:
                 raise ValueError('No saved gallery is available for this model.')
             self._ensure_encoder(gallery).encode_text(['a video'])
 
-    def search(self, text, model, dataset='all', top_k=10):
+    def search(self, text, model, dataset='all', top_k=10, min_score=.2, score_margin=.05):
         if not isinstance(text, str) or not text.strip():
             raise ValueError('Enter a video description.')
-        if len(text) > 2000 or type(top_k) is not int or not 1 <= top_k <= 100:
-            raise ValueError('Use a description up to 2000 characters and top_k from 1 to 100.')
+        if len(text) > 2000:
+            raise ValueError('Use a description up to 2000 characters.')
+        if top_k is not None and (type(top_k) is not int or not 1 <= top_k <= 100):
+            raise ValueError('Use top_k from 1 to 100.')
+        if top_k is None:
+            for value, lower, upper in ((min_score, -1, 1), (score_margin, 0, 2)):
+                if type(value) not in (int, float) or not math.isfinite(value) or not lower <= value <= upper:
+                    raise ValueError('Use min_score from -1 to 1 and score_margin from 0 to 2.')
         with self._lock:
             galleries = self._selected(model, dataset)
             index_key = (model, dataset)
@@ -159,7 +165,10 @@ class SearchService:
                 self._indexes[index_key] = (index, {item['key']: item for item in metadata})
             index, metadata = self._indexes[index_key]
             query = self._ensure_encoder(galleries[0]).encode_text([text.strip()])[0]
-            results = index.search(query, top_k)
+            results = index.search(query, len(index.item_ids) if top_k is None else top_k)
+            if top_k is None and results:
+                cutoff = max(min_score, results[0]['cosine_similarity'] - score_margin)
+                results = [row for row in results if row['cosine_similarity'] >= cutoff]
             return [dict(**metadata[row['item_id']], model=model, rank=row['rank'], cosine_similarity=row['cosine_similarity']) for row in results]
 
     def resolve_result(self, row):
