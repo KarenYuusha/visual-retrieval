@@ -1,5 +1,6 @@
 """Minimal Gradio presentation and password-protected remote launcher."""
 import argparse
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 import html
 import logging
@@ -143,6 +144,7 @@ def build_demo(service, media, default_model='internvideo2', page_size=20, min_s
                              allow_preview=False, interactive=False, container=False, buttons=[], elem_id='results')
         state = gr.State([])
         all_state = gr.State([])
+        submitted_query = gr.State(None)
         page_state = gr.State(0)
         # Normal input is captured by the browser at click time. Unlike gr.State,
         # it cannot silently become a newer view while an event is queued.
@@ -183,6 +185,8 @@ def build_demo(service, media, default_model='internvideo2', page_size=20, min_s
             revision = ctx['revision']
             try:
                 text, image = composer_value(text)
+                if image is not None and not getattr(service,'composed_available',False):
+                    raise ValueError('CoVR-2 is not ready. Start the demo with both CoVR-2 checkpoint options and prepared galleries.')
                 if image is not None and chosen_model != 'covr2':
                     raise ValueError('Wait for CoVR-2 to be selected after attaching an image.')
                 if image is None and chosen_model == 'covr2':
@@ -199,12 +203,30 @@ def build_demo(service, media, default_model='internvideo2', page_size=20, min_s
                 answer = view([], 0, 'Search failed. Check the PC terminal.', revision, [])
             return answer if ctx['revision'] == revision else (gr.skip(),) * 13
 
+        def prepare_search(value, chosen_model, chosen_dataset, ctx):
+            # Draft edits never touch committed selectors or result state. Snapshot
+            # only on Search/Enter so typing during inference cannot change it.
+            files = value.get('files',[]) if isinstance(value,dict) else []
+            if chosen_model != 'covr2':
+                ctx['text_model'] = chosen_model
+            chosen = 'covr2' if files else ctx.get('text_model',initial)
+            choices = [('CoVR-2','covr2')] if files else [(LABELS[m],m) for m in service.available_models]
+            datasets = service.dataset_choices(chosen)
+            selected_dataset = chosen_dataset if chosen_dataset in {d for _,d in datasets} else 'all'
+            ctx.update(revision=ctx['revision']+1,page=0,model=chosen,
+                       dataset=selected_dataset,frame_item=None)
+            return (gr.update(choices=choices,value=chosen),
+                    gr.update(choices=datasets,value=selected_dataset),deepcopy(value))
+
         outputs = [results, state, all_state, page_state, status, page_label, previous, next_page, navigation, player, details, selected, view_token]
-        event_args = dict(fn=do_search, inputs=[query,model,dataset,context], outputs=outputs,
+        event_args = dict(fn=do_search, inputs=[submitted_query,model,dataset,context], outputs=outputs,
                           concurrency_id='inference', concurrency_limit=1, show_progress='minimal',
                           trigger_mode='always_last', api_visibility='undocumented')
-        click_event = button.click(api_name='search', **event_args)
-        submit_event = query.submit(api_name=False, **event_args)
+        submit_args = dict(fn=prepare_search, inputs=[query,model,dataset,context],
+                           outputs=[model,dataset,submitted_query],queue=False,api_name=False,
+                           show_progress='hidden')
+        click_event = button.click(**submit_args).then(api_name='search', **event_args)
+        submit_event = query.submit(**submit_args).then(api_name=False, **event_args)
 
         def select_video(rows, ctx, token, evt: gr.EventData):
             revision = ctx['revision']
@@ -257,38 +279,15 @@ def build_demo(service, media, default_model='internvideo2', page_size=20, min_s
             except Exception:
                 logging.exception('Model warmup failed; the next search will retry')
         cancel = [click_event, submit_event, select_event, previous_event, next_event]
-        model.change(change_model, inputs=[model,context], outputs=[dataset,*outputs],
+        model.input(change_model, inputs=[model,context], outputs=[dataset,*outputs],
                      queue=False, api_name=False, cancels=cancel).then(
             warm_model, inputs=[model], outputs=[],
             concurrency_id='inference', concurrency_limit=1, show_progress='minimal', api_name=False)
         def change_dataset(m, d, ctx):
             ctx.update(revision=ctx['revision'] + 1, page=0, model=m, dataset=d, frame_item=None)
             return view([], 0, controller.summary(m,d), ctx['revision'], [])
-        dataset.change(change_dataset, inputs=[model,dataset,context],
+        dataset.input(change_dataset, inputs=[model,dataset,context],
                        outputs=outputs, queue=False, api_name=False, cancels=cancel)
-
-        def change_attachment(value, ctx):
-            files = value.get('files',[]) if isinstance(value,dict) else []
-            attachment = str(files[0]) if files else None
-            if attachment == ctx.get('attachment'):
-                return (gr.skip(),) * 15
-            ctx['attachment'] = attachment
-            if attachment:
-                chosen = 'covr2'
-                choices = [('CoVR-2','covr2')]
-                message = 'Image + text · CoVR-2 · top 100 ranked videos'
-                if not getattr(service,'composed_available',False):
-                    message = 'CoVR-2 is not ready. Prepare its gallery and start with both checkpoint options.'
-            else:
-                chosen = ctx.get('text_model',initial)
-                choices = [(LABELS[m],m) for m in service.available_models]
-                message = controller.summary(chosen)
-            ctx.update(revision=ctx['revision']+1,page=0,model=chosen,dataset='all',frame_item=None)
-            return (gr.update(choices=choices,value=chosen),
-                    gr.update(choices=service.dataset_choices(chosen),value='all'),
-                    *view([],0,message,ctx['revision'],[]))
-        query.change(change_attachment, inputs=[query,context], outputs=[model,dataset,*outputs],
-                     queue=False, api_name=False, cancels=cancel)
 
         def record_copy(payload,ctx):
             try:

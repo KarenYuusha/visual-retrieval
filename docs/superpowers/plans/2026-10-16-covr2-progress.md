@@ -57,3 +57,16 @@ demo/composed.py and demo/frames.py; the interfaces and behavior match the spec.
 Windows download, pilot/full extraction, launch and sharing steps are recorded
 in docs/covr2.md. Publication is against remote main parent
 5a7bb13fb7e8c769546a35051fa37774163d5113, whose tree matches the local base.
+
+Follow-up: submit-only composer updates. Removed query.change so typing,
+pasting/removing images and Use frame only edit a draft. Enter/Search snapshots
+the query, commits CoVR-2/text routing and runs retrieval. Model/dataset .input
+listeners distinguish manual edits from programmatic submission updates; the
+latter no longer cancel/clear the search. Existing revision guards discard
+superseded inference/media results. A missing composed setup returns a clear
+checkpoint/gallery message rather than AttributeError.
+
+Verification: 34 targeted app/frame/service tests passed; all 3 browser tests
+passed, including draft typing with stable image DOM/summary, paste preserving
+the prior model/results until Search, and image removal restoring CLIP only on
+Enter. Independent focused review found no blockers. No feature cache changes.

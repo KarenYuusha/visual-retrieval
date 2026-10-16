@@ -54,6 +54,10 @@ def test_copy_paste_composed_search_and_use_frame_fallback(tmp_path,monkeypatch)
             page=context.new_page();page.goto(f'http://127.0.0.1:{port}')
             page.locator('#query textarea').fill('a person');page.locator('#search-button').click()
             page.wait_for_function("document.querySelectorAll('#results img').length===20")
+            page.evaluate("window.previousResults=Array.from(document.querySelectorAll('#results img')); window.previousSummary=document.querySelector('#summary').innerText")
+            page.locator('#query textarea').press_sequentially(' draft',delay=30)
+            page.wait_for_timeout(400)
+            assert page.evaluate("previousResults.every((img,i)=>img===document.querySelectorAll('#results img')[i]) && previousSummary===document.querySelector('#summary').innerText")
             page.locator('#results img').first.click();page.locator('video').wait_for(state='visible')
             page.wait_for_function("document.querySelector('video').readyState>=2")
             page.locator('video').evaluate('(v)=>{v.pause();v.currentTime=2.5;}')
@@ -62,9 +66,12 @@ def test_copy_paste_composed_search_and_use_frame_fallback(tmp_path,monkeypatch)
             page.wait_for_function("document.querySelector('#frame-status').innerText.includes('Copied frame at 2.50s')")
             page.locator('#query textarea').fill('make the person run')
             page.locator('#query textarea').press('Control+V')
-            page.wait_for_function("document.querySelector('#model-choice input').value==='CoVR-2'")
+            page.locator('#query .thumbnail-image').wait_for()
+            assert page.locator('#model-choice input').input_value()=='CLIP'
+            assert page.locator('#results img').count()==20
             assert page.locator('#query textarea').input_value()=='make the person run'
             page.locator('#search-button').click()
+            page.wait_for_function("document.querySelector('#model-choice input').value==='CoVR-2'")
             page.wait_for_function("document.querySelector('#summary').innerText.includes('24 results')")
             assert len(seen)==1 and seen[0][1]=='make the person run'
             # Late frame is blue, first frame is red: copying a thumbnail would fail.
@@ -84,7 +91,11 @@ def test_copy_paste_composed_search_and_use_frame_fallback(tmp_path,monkeypatch)
             assert page.locator('#query textarea').input_value()=='make the person run'
             page.screenshot(path=str(tmp_path/'composed-search.png'),full_page=True)
             page.get_by_role('button',name='Remove file',exact=True).click()
-            page.wait_for_function("document.querySelector('#model-choice input').value==='CLIP'")
+            assert page.locator('#model-choice input').input_value()=='CoVR-2'
+            assert page.locator('#results img').count()==4
             assert page.locator('#query textarea').input_value()=='make the person run'
+            page.locator('#query textarea').press('Enter')
+            page.wait_for_function("document.querySelector('#model-choice input').value==='CLIP'")
+            page.wait_for_function("document.querySelector('#summary').innerText.includes('25 results')")
             browser.close()
     finally:app.close();service.close()

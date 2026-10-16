@@ -2,8 +2,9 @@
 
 Attach one still image, then describe the change you want: for example, a frame
 of a person walking + “the person is running on a beach”. The demo selects
-CoVR-2 automatically and ranks up to 100 videos, 20 per page by default. Removing
-the image restores the last text retrieval model. Text-only search retains its
+CoVR-2 on Enter/Search and ranks up to 100 videos, 20 per page by default.
+Draft typing and image changes leave the displayed model and results unchanged.
+Removing the image restores the last text retrieval model on the next submission. Text-only search retains its
 variable result count. CoVR-2 requires its own gallery extraction; existing CLIP,
 CLIP4Clip and InternVideo2 embeddings are not interchangeable with these tokens.
 

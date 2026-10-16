@@ -23,19 +23,39 @@ def test_frame_source_time_hash_and_stale_preview_guards(tmp_path):
         with pytest.raises(ValueError): captured_frame(json.dumps(dict(payload,**changed)),ctx,Media())
 
 
-def test_attachment_switch_preserves_prior_text_model_and_invalidates_old_results(tmp_path):
+def test_composer_drafts_have_no_change_listener_and_route_only_on_submit(tmp_path):
     from visual_retrieval.demo.app import build_demo
     from test_covr2_service import composed_fixture
     service,_,_=composed_fixture(tmp_path)
     app=build_demo(service,None,'clip')
+    config=app.get_config_file()
+    query=next(c['id'] for c in config['components'] if c['type']=='multimodaltextbox')
+    assert not any([query,'change'] in d['targets'] or (query,'change') in d['targets']
+                   for d in config['dependencies'])
     f={v.fn.__name__:v.fn for v in app.fns.values() if v.fn}
-    ctx=dict(revision=1,page=2,model='clip',dataset='a',text_model='clip',frame_item={})
+    ctx=dict(revision=1,page=2,model='clip',dataset='all',text_model='clip',frame_item={})
     value=dict(text='make it run',files=['reference.png'])
-    output=f['change_attachment'](value,ctx)
+    output=f['prepare_search'](value,'clip','all',ctx)
     assert output[0]['value']=='covr2' and ctx['model']=='covr2'
     assert ctx['revision']==2 and ctx['page']==0 and ctx['frame_item'] is None
-    same=f['change_attachment'](dict(value,text='keep typing'),ctx)
-    import gradio as gr
-    assert all(x==gr.skip() for x in same)
-    output=f['change_attachment'](dict(text='keep typing',files=[]),ctx)
+    assert output[2]==value
+    value['text']='changed after submit'
+    assert output[2]['text']=='make it run'
+    output=f['prepare_search'](dict(text='keep typing',files=[]),'covr2','all',ctx)
     assert output[0]['value']=='clip' and ctx['model']=='clip'
+
+
+def test_submitting_image_without_covr2_setup_returns_actionable_message(tmp_path):
+    from visual_retrieval.demo.app import build_demo
+    from visual_retrieval.demo.service import SearchService
+    from test_demo_service import saved_gallery,make_spec,Encoder
+    saved_gallery(tmp_path/'a')
+    service=SearchService([make_spec(tmp_path/'a','a')],'cpu',lambda *a:Encoder())
+    app=build_demo(service,None,'clip')
+    f={v.fn.__name__:v.fn for v in app.fns.values() if v.fn}
+    image=tmp_path/'image.png';Image.new('RGB',(4,4)).save(image)
+    ctx=dict(revision=0,selection=0,page=0,model='clip',dataset='all',text_model='clip')
+    value=dict(text='make it run',files=[str(image)])
+    prepared=f['prepare_search'](value,'clip','all',ctx)
+    result=f['do_search'](prepared[2],'covr2','all',ctx)
+    assert 'both CoVR-2 checkpoint options' in result[4]
