@@ -34,6 +34,8 @@ run `.\.venv\Scripts\python.exe scripts\demo.py`. It defaults to all available
 datasets and supports CLIP, CLIP4Clip and InternVideo2. To open it from a laptop on
 another network, set `VR_DEMO_USERNAME` and `VR_DEMO_PASSWORD` and launch with
 `--share`. See [demo installation, configuration and remote access](docs/demo.md).
+For reference-image + text search, follow the [CoVR-2 setup guide](docs/covr2.md).
+The composer supports image paste, and video previews offer Copy frame / Use frame.
 
 ```powershell
 # File/annotation checks only; no checkpoint download or video decoding

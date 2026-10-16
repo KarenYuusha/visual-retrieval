@@ -23,6 +23,7 @@ demo = ["gradio==6.9.0"]
 where = ["src"]
 
 [tool.setuptools.package-data]
+"visual_retrieval.models.covr2_vendor" = ["LICENSE", "COVR-LICENSE", "NOTICE.md"]
 "visual_retrieval.models.iv2_vendor" = ["*.json", "LICENSE", "NOTICE.md"]
 "visual_retrieval.models.clip4clip_vendor" = ["LICENSE", "NOTICE.md"]
 

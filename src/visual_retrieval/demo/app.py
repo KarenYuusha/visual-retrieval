@@ -12,8 +12,10 @@ from visual_retrieval.config import DEFAULT_BASE, MODEL_NAMES
 from .config import DemoConfig
 from .media import MediaCache, MediaError
 from .service import SearchService
+from .composed import composer_value
+from .frames import COPY_JS, USE_JS, captured_frame, image_key
 
-LABELS = {'clip': 'CLIP', 'clip4clip': 'CLIP4Clip', 'internvideo2': 'InternVideo2'}
+LABELS = {'clip': 'CLIP', 'clip4clip': 'CLIP4Clip', 'internvideo2': 'InternVideo2', 'covr2': 'CoVR-2'}
 CSS = """
 .gradio-container {width:100% !important; max-width:1120px !important; margin:auto !important; padding:44px 24px !important;}
 #heading h1 {font-size:28px; font-weight:550; letter-spacing:-.8px; margin:0 0 18px;}
@@ -67,10 +69,13 @@ class DemoController:
             text += ' · effective precision not recorded'
         return text
 
-    def search(self, text, model, dataset):
+    def search(self, text, model, dataset, image=None, source=None):
         started = time.perf_counter()
-        results = self.service.search(text, model, dataset, top_k=None,
-                                      min_score=self.min_score, score_margin=self.score_margin)
+        if image is None:
+            results = self.service.search(text, model, dataset, top_k=None,
+                                          min_score=self.min_score, score_margin=self.score_margin)
+        else:
+            results = self.service.search_composed(image, text, dataset, source=source)
         images, _, label, _ = self.page(results, 0)
         status = f'{len(results):,} results · {self.summary(model, dataset)} · {time.perf_counter() - started:.2f}s'
         if 'unavailable' in label:
@@ -110,7 +115,8 @@ class DemoController:
         row = results[index]
         item = self.service.resolve_result(row)
         path = str(self.media.video(item))
-        description = f'{html.escape(item["dataset_label"])} · {html.escape(item["item_id"])} · similarity {row["cosine_similarity"]:.3f}'
+        metric = 'score' if row.get('model') == 'covr2' else 'similarity'
+        description = f'{html.escape(item["dataset_label"])} · {html.escape(item["item_id"])} · {metric} {row["cosine_similarity"]:.3f}'
         if item['start'] is not None:
             description += f' · {item["start"]:.2f}–{item["end"]:.2f}s'
         return path, description
@@ -123,7 +129,8 @@ def build_demo(service, media, default_model='internvideo2', page_size=20, min_s
     with gr.Blocks(title='Video search', analytics_enabled=False) as demo:
         gr.Markdown('# Video search', elem_id='heading')
         with gr.Row(elem_id='search-row'):
-            query = gr.Textbox(placeholder='Describe a moment…', label='Search', show_label=False,
+            query = gr.MultimodalTextbox(placeholder='Describe a moment… or paste an image and describe a change', label='Search', show_label=False,
+                               sources=['upload'], file_types=['image'], file_count='single', submit_btn=False, max_plain_text_length=2000,
                                lines=1, max_lines=3, container=False, scale=7, elem_id='query')
             button = gr.Button('Search', variant='primary', scale=1, min_width=100, elem_id='search-button')
         with gr.Row(elem_id='choices'):
@@ -140,7 +147,7 @@ def build_demo(service, media, default_model='internvideo2', page_size=20, min_s
         # Normal input is captured by the browser at click time. Unlike gr.State,
         # it cannot silently become a newer view while an event is queued.
         view_token = gr.Textbox(value='0:0', visible=False)
-        context = gr.State(dict(revision=0, selection=0, page=0, model=initial, dataset='all'))
+        context = gr.State(dict(revision=0, selection=0, page=0, model=initial, dataset='all', text_model=initial, attachment=None))
         with gr.Row(visible=False, elem_id='pagination') as navigation:
             previous = gr.Button('Previous', size='sm', min_width=80, scale=0, elem_id='previous-page')
             page_label = gr.Markdown('', elem_id='page-label')
@@ -149,13 +156,20 @@ def build_demo(service, media, default_model='internvideo2', page_size=20, min_s
             player = gr.Video(show_label=False, interactive=False, autoplay=False, include_audio=False,
                               height=360, buttons=[])
             details = gr.Markdown(elem_id='selection-detail')
+            with gr.Row():
+                copy_frame = gr.Button('Copy frame', size='sm', elem_id='copy-frame')
+                use_frame = gr.Button('Use frame', size='sm', elem_id='use-frame')
+            frame_status = gr.Markdown('', elem_id='frame-status')
 
         def view(rows, page, message, revision, images=None):
             start, end, label, page = controller.page_info(rows, page)
             if images is None:
                 images, _, label, page = controller.page(rows, page)
             visible = [dict(row, view_revision=revision, view_page=page) for row in rows[start:end]]
-            return (gr.update(value=images, selected_index=None), visible, rows, page, message, label,
+            # A component update preserves the explicit null selection. gr.update
+            # drops non-value None props in Gradio 6.9, leaving the prior index
+            # selected and suppressing a click at that index on the next page.
+            return (gr.Gallery(value=images, selected_index=None), visible, rows, page, message, label,
                     gr.update(interactive=page > 0), gr.update(interactive=end < len(rows)),
                     gr.update(visible=len(rows) > controller.page_size), None, '', gr.update(visible=False),
                     f'{revision}:{page}')
@@ -165,9 +179,16 @@ def build_demo(service, media, default_model='internvideo2', page_size=20, min_s
                 return (gr.skip(),) * 13
             ctx['revision'] += 1
             ctx['page'] = 0
+            ctx['frame_item'] = None
             revision = ctx['revision']
             try:
-                images, rows, message = controller.search(text, chosen_model, chosen_dataset)
+                text, image = composer_value(text)
+                if image is not None and chosen_model != 'covr2':
+                    raise ValueError('Wait for CoVR-2 to be selected after attaching an image.')
+                if image is None and chosen_model == 'covr2':
+                    raise ValueError('Attach one reference image and describe a change.')
+                source = ctx.get('reference_sources',{}).get(image_key(image)) if image is not None else None
+                images, rows, message = controller.search(text, chosen_model, chosen_dataset, image, source)
                 for row in rows:
                     row['view_revision'] = revision
                 answer = view(rows, 0, message, revision, images)
@@ -193,8 +214,11 @@ def build_demo(service, media, default_model='internvideo2', page_size=20, min_s
                 return (gr.skip(),) * 3
             ctx['selection'] += 1
             selection = ctx['selection']
+            ctx['frame_item'] = None
             try:
                 path, text = controller.select(rows, evt._data['index'])
+                if (revision,selection,page) == (ctx['revision'],ctx['selection'],ctx.get('page',0)):
+                    ctx['frame_item'] = service.resolve_result(rows[evt._data['index']])
                 answer = path, text, gr.update(visible=True)
             except (ValueError, OSError):
                 answer = None, 'This preview is unavailable.', gr.update(visible=True)
@@ -210,7 +234,7 @@ def build_demo(service, media, default_model='internvideo2', page_size=20, min_s
             if token != f"{revision}:{ctx.get('page', 0)}" or not rows or rows[0].get('view_revision') != revision:
                 return (gr.skip(),) * 13
             target = controller.page_info(rows, page + direction)[3]
-            ctx.update(page=target, selection=ctx['selection'] + 1)
+            ctx.update(page=target, selection=ctx['selection'] + 1, frame_item=None)
             answer = view(rows, target, message, revision)
             return answer if (revision, target) == (ctx['revision'], ctx['page']) else (gr.skip(),) * 13
         def go_previous(rows, page, message, ctx, token):
@@ -223,7 +247,8 @@ def build_demo(service, media, default_model='internvideo2', page_size=20, min_s
         next_event = next_page.click(go_next, **page_args)
 
         def change_model(chosen_model, ctx):
-            ctx.update(revision=ctx['revision'] + 1, page=0, model=chosen_model, dataset='all')
+            ctx.update(revision=ctx['revision'] + 1, page=0, model=chosen_model, dataset='all', frame_item=None)
+            if chosen_model != 'covr2': ctx['text_model'] = chosen_model
             return (gr.update(choices=service.dataset_choices(chosen_model), value='all'),
                     *view([], 0, controller.summary(chosen_model), ctx['revision'], []))
         def warm_model(chosen_model):
@@ -237,10 +262,55 @@ def build_demo(service, media, default_model='internvideo2', page_size=20, min_s
             warm_model, inputs=[model], outputs=[],
             concurrency_id='inference', concurrency_limit=1, show_progress='minimal', api_name=False)
         def change_dataset(m, d, ctx):
-            ctx.update(revision=ctx['revision'] + 1, page=0, model=m, dataset=d)
+            ctx.update(revision=ctx['revision'] + 1, page=0, model=m, dataset=d, frame_item=None)
             return view([], 0, controller.summary(m,d), ctx['revision'], [])
         dataset.change(change_dataset, inputs=[model,dataset,context],
                        outputs=outputs, queue=False, api_name=False, cancels=cancel)
+
+        def change_attachment(value, ctx):
+            files = value.get('files',[]) if isinstance(value,dict) else []
+            attachment = str(files[0]) if files else None
+            if attachment == ctx.get('attachment'):
+                return (gr.skip(),) * 15
+            ctx['attachment'] = attachment
+            if attachment:
+                chosen = 'covr2'
+                choices = [('CoVR-2','covr2')]
+                message = 'Image + text · CoVR-2 · top 100 ranked videos'
+                if not getattr(service,'composed_available',False):
+                    message = 'CoVR-2 is not ready. Prepare its gallery and start with both checkpoint options.'
+            else:
+                chosen = ctx.get('text_model',initial)
+                choices = [(LABELS[m],m) for m in service.available_models]
+                message = controller.summary(chosen)
+            ctx.update(revision=ctx['revision']+1,page=0,model=chosen,dataset='all',frame_item=None)
+            return (gr.update(choices=choices,value=chosen),
+                    gr.update(choices=service.dataset_choices(chosen),value='all'),
+                    *view([],0,message,ctx['revision'],[]))
+        query.change(change_attachment, inputs=[query,context], outputs=[model,dataset,*outputs],
+                     queue=False, api_name=False, cancels=cancel)
+
+        def record_copy(payload,ctx):
+            try:
+                _,_,time,copied = captured_frame(payload,ctx,media)
+                return (f'Copied frame at {time:.2f}s. Paste it into the search box.' if copied
+                        else 'Clipboard access was blocked. Choose Use frame to attach it directly.')
+            except ValueError as error:
+                return str(error)
+        def attach_frame(value,payload,ctx):
+            try:
+                image,key,time,_ = captured_frame(payload,ctx,media)
+                folder=media.root/'references';folder.mkdir(exist_ok=True)
+                path=folder/(key+'.png');image.save(path)
+                text=value.get('text','') if isinstance(value,dict) else value or ''
+                return dict(text=text,files=[str(path)]),f'Frame at {time:.2f}s attached. Describe a change.'
+            except ValueError as error:
+                return gr.skip(),str(error)
+        copy_frame.click(record_copy,inputs=[view_token,context],outputs=[frame_status],js=COPY_JS,
+                         api_name=False,show_progress='hidden')
+        use_frame.click(attach_frame,inputs=[query,view_token,context],outputs=[query,frame_status],js=USE_JS,
+                        api_name=False,show_progress='hidden')
+
     demo.queue(default_concurrency_limit=1, max_size=16)
     return demo
 
@@ -252,6 +322,8 @@ def main(argv=None):
     parser.add_argument('--cache-dir', type=Path, help='Generated thumbnails/previews; default BASE/demo_cache.')
     parser.add_argument('--model', choices=MODEL_NAMES, help='Initial model; otherwise use configuration default.')
     parser.add_argument('--device', choices=['cuda','cpu'], default='cuda')
+    parser.add_argument('--covr2-base-checkpoint', type=Path, help='Frozen BLIP-2 COCO checkpoint.')
+    parser.add_argument('--covr2-checkpoint', type=Path, help='Released CoVR-2 coir+covr.ckpt.')
     parser.add_argument('--page-size', type=int, default=20)
     parser.add_argument('--min-score', type=float, default=.2, help='Minimum cosine similarity (initial heuristic; tune per model).')
     parser.add_argument('--score-margin', type=float, default=.05, help='Include results within this cosine gap of the best result.')
@@ -271,6 +343,11 @@ def main(argv=None):
         auth = auth_from_env(args.share) if not args.check else None
         config = DemoConfig.from_yaml(args.config) if args.config else DemoConfig.defaults(base)
         service = SearchService(config.datasets, args.device)
+        if bool(args.covr2_base_checkpoint) != bool(args.covr2_checkpoint):
+            raise ValueError('Provide both CoVR-2 checkpoint options.')
+        if args.covr2_checkpoint:
+            from .composed import ComposedSearchService
+            service = ComposedSearchService(service,config.datasets,args.covr2_base_checkpoint,args.covr2_checkpoint)
         media = MediaCache(args.cache_dir or base / 'demo_cache')
         for spec in config.datasets:
             if media.root.is_relative_to((spec.root / 'raw_videos').resolve()):
@@ -279,7 +356,8 @@ def main(argv=None):
         parser.error(str(error))
     for issue in service.issues:
         print('Unavailable gallery:', issue)
-    for model in service.available_models:
+    report_models = service.available_models + (['covr2'] if getattr(service,'composed_available',False) else [])
+    for model in report_models:
         for dataset, count in service.gallery_counts(model).items():
             print(f'{model} / {dataset}: {count} clips; {service.omitted_counts(model)[dataset]} omitted')
     if args.check:

@@ -2,8 +2,10 @@
 
 The Gradio app runs on your GPU PC. Your laptop opens a password-protected
 temporary share link in its browser. No GPU, Python environment, model weights or
-dataset copy is needed on the laptop. This version searches text queries; image
-plus text composition is a later extension.
+dataset copy is needed on the laptop. Text-only search uses the existing retrieval models. Optional
+[CoVR-2 composed search](covr2.md) adds a reference image plus modification text.
+The shared search box accepts image paste/upload; each selected video offers
+Copy frame and Use frame controls.
 
 ## Install on the PC
 

@@ -51,8 +51,8 @@ def test_ui_has_minimal_controls_and_default_combined_gallery(tmp_path):
     demo = build_demo(service, None, default_model='clip')
     config = demo.get_config_file()
     types = [c['type'] for c in config['components']]
-    assert sum(c['type'] == 'textbox' and c['props'].get('visible', True) for c in config['components']) == 1
-    assert types.count('button') == 3
+    assert sum(c['type'] == 'multimodaltextbox' and c['props'].get('visible', True) for c in config['components']) == 1
+    assert types.count('button') == 5
     assert types.count('dropdown') == 2 and types.count('gallery') == 1 and types.count('video') == 1
     assert not any(c['props'].get('elem_id') == 'top-k-choice' for c in config['components'])
     dataset = next(c for c in config['components'] if c['props'].get('elem_id') == 'dataset-choice')
