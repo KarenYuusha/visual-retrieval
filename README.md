@@ -12,6 +12,8 @@ Runtime datasets live outside the repository:
 
 **The repository's `data/` directory is reference-only. No command selects it automatically.** Each runtime root must contain `subset.json`, `raw_videos/`, and annotation files under `raw_data/` (or the root). See [dataset formats](docs/datasets.md).
 
+For a five-example WebVid-CoVR trial, see the [adjustable subset downloader](docs/webvid_covr_download.md).
+
 ## Install on Windows (Python 3.11, NVIDIA GPU)
 
 Run from the cloned repository root:
