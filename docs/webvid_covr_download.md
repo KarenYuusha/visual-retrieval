@@ -78,3 +78,5 @@ prevents an unbounded run when downloads keep failing.
 This script downloads an inspection subset. It does not extract CoVR-2 features,
 register a new demo gallery, or provide full-benchmark retrieval metrics. Those
 require preparing the chosen gallery and the appropriate evaluation protocol.
+
+Next: [encode with all three baselines and evaluate only CoVR-2](webvid_covr_evaluation.md).
