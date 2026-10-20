@@ -55,6 +55,48 @@ frames. CoVR-2 gallery extraction uses 15 frame centers. Its image/text query
 encoder is loaded after the gallery encoder is released. CoVR-2 uses fp16 on
 CUDA and fp32 on CPU; `--precision` configures the baseline encoders only.
 
+## Tune extraction throughput
+
+CPU decoding now overlaps model inference using a bounded thread pool. Models
+still run sequentially, with all GPU inference on the main thread. Defaults are
+two decoding workers, four videos per CLIP/CLIP4Clip inference batch, one video
+for InternVideo2, and one frame per CoVR-2 gallery inference batch.
+
+For the 12 GB GPU, start with this command (checkpoint paths use the defaults above):
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_webvid_covr.py `
+  --root "S:\video_retrieval\webvid_covr" `
+  --device cuda --precision fp16 `
+  --decode-workers 4 --video-batch-size 4 --covr2-frame-batch-size 2
+```
+
+Increase `--video-batch-size` to 8 if CLIP/CLIP4Clip have spare VRAM. InternVideo2
+retains its conservative per-video inference fallback; this setting buffers its
+inputs but does not batch its GPU forward pass. Increase
+`--covr2-frame-batch-size` separately to 4 only if VRAM permits. If CUDA runs out
+of memory, lower the relevant batch size and rerun to resume completed items.
+There is no automatic retry with smaller batches.
+
+Use `--decode-workers 2` if four workers contend for disk bandwidth or RAM;
+`--decode-workers 0` restores synchronous decoding. Keep source videos and output
+caches on an SSD where possible. More workers are not necessarily faster.
+The decoder retains only a bounded number of upcoming sources, rather than
+loading the entire dataset into RAM.
+
+The standalone `scripts/prepare_covr2.py` also accepts `--decode-workers 4` and
+`--frame-batch-size 2` for existing MSR-VTT, VATEX or ActivityNet manifests.
+Worker and batch settings do not change cache identity, so tuning them reuses
+valid existing video/token caches. Batched floating-point inference may differ
+slightly numerically from single-item inference.
+
+Extraction manifests record the selected settings and elapsed seconds; baseline
+manifests also record inference batch counts and new/reused video counts. Compare
+elapsed time on the same uncached inputs (use separate `--output-root` folders
+for comparisons). A fully cached rerun measures cache validation, and a five-sample
+run is dominated by model loading. Evaluation-only still uses CPU scoring of saved
+CoVR-2 features; these extraction controls do not move evaluation onto the GPU.
+
 ## Extract and evaluate separately
 
 Append `--stage extract` to the full command to save all features without metrics.

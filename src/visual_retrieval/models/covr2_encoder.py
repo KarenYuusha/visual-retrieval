@@ -82,7 +82,11 @@ class CoVR2Encoder:
     The original frozen COCO Q-Former is retained for text-dependent frame
     weighting. Only one vision encoder is resident in either mode.
     """
-    def __init__(self, base_checkpoint, query_checkpoint=None, device='cuda', tokenizer='bert-base-uncased'):
+    def __init__(self, base_checkpoint, query_checkpoint=None, device='cuda', tokenizer='bert-base-uncased',
+                 frame_batch_size=1):
+        if frame_batch_size<1:
+            raise ValueError('Frame batch size must be positive.')
+        self.frame_batch_size=frame_batch_size
         from transformers import BertTokenizer
         from .covr2_vendor.eva_vit import VisionTransformer
         self.gallery_mode = query_checkpoint is None
@@ -126,18 +130,18 @@ class CoVR2Encoder:
 
     @torch.inference_mode()
     def encode_frames(self, frames):
-        # Batch one keeps EVA's attention footprint suitable for a 12 GB GPU.
+        # Default one keeps EVA's attention footprint conservative on a 12 GB GPU.
         if not self.gallery_mode:
             raise ValueError('Gallery extraction requires the frozen COCO model, not composed query weights.')
         result = []
-        for frame in frames:
-            image = self._image([frame])
-            out = self.qformer.bert(query_embeds=self.queries,
+        for start in range(0,len(frames),self.frame_batch_size):
+            image = self._image(frames[start:start+self.frame_batch_size])
+            out = self.qformer.bert(query_embeds=self.queries.expand(image.shape[0],-1,-1),
                 encoder_hidden_states=image,
                 encoder_attention_mask=torch.ones(image.shape[:-1], dtype=torch.long, device=self.device),
                 return_dict=True).last_hidden_state
-            result.append(F.normalize(self.vision_proj(out), dim=-1)[0].float().cpu().numpy())
-        return np.stack(result)
+            result.append(F.normalize(self.vision_proj(out), dim=-1).float().cpu().numpy())
+        return np.concatenate(result,axis=0)
 
     @torch.inference_mode()
     def encode_query(self, image, text):

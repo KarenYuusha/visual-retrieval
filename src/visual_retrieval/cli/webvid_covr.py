@@ -36,6 +36,9 @@ def make_parser():
     parser.add_argument('--device',choices=['cuda','cpu'],default='cuda')
     parser.add_argument('--precision',choices=['auto','fp32','fp16','bf16'],default='auto',help='Baseline precision. CoVR-2 uses fp16 CUDA / fp32 CPU.')
     parser.add_argument('--text-batch-size',type=int,default=32)
+    parser.add_argument('--decode-workers',type=int,default=2,help='CPU video decoding threads; 0 disables prefetch.')
+    parser.add_argument('--video-batch-size',type=int,help='Default 4 for CLIP/CLIP4Clip, 1 for InternVideo2. InternVideo2 still infers each video separately.')
+    parser.add_argument('--covr2-frame-batch-size',type=int,default=1,help='Gallery frames per inference; default 1. Try 2 if VRAM permits.')
     parser.add_argument('--gallery',choices=['targets','all'],default='targets',help='Unique targets (default), or all unique reference+target videos.')
     parser.add_argument('--top-k',type=int,default=10,help='Candidates to export per query; evaluation always ranks the FULL gallery.')
     parser.add_argument('--allow-incomplete',action='store_true',help='Explicitly permit partial downloads/extraction; omissions and denominators are reported.')
@@ -46,6 +49,8 @@ def main(argv=None):
     parser=make_parser();args=parser.parse_args(argv)
     if args.text_batch_size<1 or args.top_k<1 or (args.limit is not None and args.limit<1):
         parser.error('Batch size, top-k and limit must be positive.')
+    if args.decode_workers<0 or args.covr2_frame_batch_size<1 or (args.video_batch_size is not None and args.video_batch_size<1):
+        parser.error('Decoder workers must be nonnegative and video/frame batch sizes positive.')
     try:
         data=load_subset(args.root,args.split,args.subset,args.limit,args.allow_incomplete)
         output=(args.output_root or data.root/'features'/'webvid_covr'/args.split).resolve()
@@ -77,14 +82,16 @@ def main(argv=None):
             for model in dict.fromkeys(args.models):
                 print(f'Encoding {model} (no evaluation)…',flush=True)
                 extract_baseline(data,model,output/model,checkpoint=checkpoints[model],device=args.device,
-                    precision=args.precision,text_batch_size=args.text_batch_size,allow_incomplete=args.allow_incomplete)
+                    precision=args.precision,text_batch_size=args.text_batch_size,allow_incomplete=args.allow_incomplete,
+                    decode_workers=args.decode_workers,video_batch_size=args.video_batch_size)
             source_manifest=output/'gallery_source.json'
             write_json(source_manifest,dict(protocol=PROTOCOL,dataset='webvid_covr',split=data.split,
                 subset_sha256=data.subset_sha256,requested_video_ids=[item['item_id'] for item in data.items],
                 gallery_items=[dict(item,path=str(item['path'])) for item in data.items],
                 queries=serializable_queries(data.queries)))
             print('Encoding frozen CoVR-2 gallery tokens…',flush=True)
-            gallery_manifest=prepare_gallery(data.root,source_manifest,base,output=output/'covr2',device=args.device)
+            gallery_manifest=prepare_gallery(data.root,source_manifest,base,output=output/'covr2',device=args.device,
+                decode_workers=args.decode_workers,frame_batch_size=args.covr2_frame_batch_size)
             if gallery_manifest.get('failures') and not args.allow_incomplete:
                 raise ValueError('CoVR-2 gallery extraction incomplete; retry or use --allow-incomplete.')
             print('Encoding trained CoVR-2 image + modification queries…',flush=True)

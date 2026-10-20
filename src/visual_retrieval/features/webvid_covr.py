@@ -1,6 +1,7 @@
 """Encode WebVid-CoVR with the baseline adapters; deliberately no evaluation."""
 import gc
 import json
+import time
 from pathlib import Path
 from zipfile import BadZipFile
 import numpy as np
@@ -10,6 +11,7 @@ from visual_retrieval.data.video_sampling import read_video_frames
 from visual_retrieval.data.webvid_covr import PROTOCOL,serializable_queries
 from visual_retrieval.models.registry import MODEL_INFO,checkpoint_signature,resolve_model_files,create_encoder
 from .cache import atomic_npz,cached_video,ensure_cache_config
+from .pipeline import prefetch_sources
 
 
 def release_gpu():
@@ -20,10 +22,14 @@ def release_gpu():
 
 
 def extract_baseline(data,model,output,checkpoint=None,device='cuda',precision='auto',
-                     text_batch_size=32,allow_incomplete=False,factory=create_encoder,resolver=resolve_model_files):
+                     text_batch_size=32,allow_incomplete=False,factory=create_encoder,resolver=resolve_model_files,
+                     decode_workers=2,video_batch_size=None):
     from visual_retrieval.models.base import resolve_precision
     if model not in MODEL_INFO or text_batch_size<1:
         raise ValueError('Use a baseline model and a positive text batch size.')
+    if decode_workers<0 or (video_batch_size is not None and video_batch_size<1):
+        raise ValueError('Decoder workers must be nonnegative and video batch size positive.')
+    video_batch_size=video_batch_size or (1 if model=='internvideo2' else 4)
     effective=resolve_precision(device,precision)
     checkpoint,tokenizer=resolver(model,checkpoint,None)
     info=MODEL_INFO[model]
@@ -43,7 +49,33 @@ def extract_baseline(data,model,output,checkpoint=None,device='cuda',precision='
         return encoder
     features,failed={},[]
     reused=0
+    started=time.perf_counter()
+    pending=[]
+    batches=0
+    stream=None
+    def decode(source):
+        item,signature=source
+        try:
+            sample=read_video_frames(item['path'],count_frames=info['num_frames'])
+        except (ValueError,OSError) as error:
+            sample=error
+        return item,signature,sample
+    def flush():
+        nonlocal batches
+        if not pending:return
+        # Inference and all model access stay on the main thread.
+        encoded=normalize_features(active().encode_videos([sample[0] for _,_,sample in pending]))
+        if encoded.shape!=(len(pending),512):raise ValueError('Expected baseline video embeddings [B,512].')
+        for (item,signature,sample),feature in zip(pending,encoded):
+            id=item['item_id']
+            atomic_npz(cache/f'{id}.npz',feature=feature,source_signature=json.dumps(signature),
+                       frame_indices=np.asarray(sample[1]),decoded_frames=sample[2])
+            features[id]=feature
+            print(f'{model}: encoded video {id}',flush=True)
+        batches+=1
+        pending.clear()
     try:
+        sources=[]
         for item in data.items:
             id,path=item['item_id'],item['path']
             try:
@@ -51,16 +83,17 @@ def extract_baseline(data,model,output,checkpoint=None,device='cuda',precision='
                 feature=cached_video(cache/f'{id}.npz',signature)
                 if feature is not None:
                     features[id]=feature;reused+=1;continue
-                frames,indices,count=read_video_frames(path,count_frames=info['num_frames'])
             except (ValueError,OSError) as error:
                 failed.append(dict(video_id=id,error=str(error)));continue
-            # Model errors abort instead of silently turning a broken model into missing data.
-            encoded=normalize_features(active().encode_videos([frames]))
-            if encoded.shape!=(1,512):raise ValueError('Expected baseline video embeddings [1,512].')
-            atomic_npz(cache/f'{id}.npz',feature=encoded[0],source_signature=json.dumps(signature),
-                       frame_indices=np.asarray(indices),decoded_frames=count)
-            features[id]=encoded[0]
-            print(f'{model}: encoded video {id}',flush=True)
+            sources.append((item,signature))
+        print(f'{model}: decode workers={decode_workers}, video batch={video_batch_size}, cached={reused}',flush=True)
+        stream=prefetch_sources(sources,decode,workers=decode_workers)
+        for item,signature,sample in stream:
+            if isinstance(sample,Exception):
+                failed.append(dict(video_id=item['item_id'],error=str(sample)));continue
+            pending.append((item,signature,sample))
+            if len(pending)>=video_batch_size:flush()
+        flush()
         if not features:
             write_json(output/'failed_videos.json',failed)
             raise ValueError(f'No {model} videos encoded; see failed_videos.json.')
@@ -93,7 +126,12 @@ def extract_baseline(data,model,output,checkpoint=None,device='cuda',precision='
             gallery_items=[dict(item,path=str(item['path'])) for item in data.items],
             requested_video_ids=[item['item_id'] for item in data.items],successful_video_ids=ids,
             failed_videos=failed,complete=not failed,num_queries=len(queries),num_queries_requested=len(data.queries),
-            reused_video_embeddings=reused,purpose='encoding_only_no_baseline_evaluation')
+            reused_video_embeddings=reused,purpose='encoding_only_no_baseline_evaluation',
+            efficiency=dict(decode_workers=decode_workers,video_batch_size=video_batch_size,
+                video_batches=batches,new_video_embeddings=len(features)-reused,
+                elapsed_seconds=time.perf_counter()-started))
+        elapsed=manifest['efficiency']['elapsed_seconds']
+        print(f'{model}: {len(features)-reused} new videos, {reused} reused; {elapsed:.1f}s',flush=True)
         write_json(output/'manifest.json',manifest)
         write_json(output/'queries.json',serializable_queries(queries))
         write_json(output/'failed_videos.json',failed)
@@ -101,5 +139,7 @@ def extract_baseline(data,model,output,checkpoint=None,device='cuda',precision='
             raise ValueError(f'{model}: incomplete extraction; retry or explicitly use --allow-incomplete.')
         return manifest
     finally:
+        if stream is not None:stream.close()
+        pending.clear()
         encoder=None
         release_gpu()

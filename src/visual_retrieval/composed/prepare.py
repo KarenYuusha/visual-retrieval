@@ -4,13 +4,19 @@ import gc
 import json
 from pathlib import Path
 import os
+import time
 import numpy as np
 from visual_retrieval.data.video_sampling import read_video_segments
 from visual_retrieval.models.covr2_encoder import CoVR2Encoder
+from visual_retrieval.features.pipeline import prefetch_sources
 from .gallery import FORMAT, atomic_json, digest, token_path, validate_tokens
 
 
-def prepare(root, source_manifest, checkpoint, output=None, device='cuda', limit=None, encoder_factory=CoVR2Encoder):
+def prepare(root, source_manifest, checkpoint, output=None, device='cuda', limit=None, encoder_factory=CoVR2Encoder,
+            decode_workers=2, frame_batch_size=1):
+    if decode_workers<0 or frame_batch_size<1:
+        raise ValueError('Decoder workers must be nonnegative and frame batch size positive.')
+    started=time.perf_counter()
     root, checkpoint = Path(root), Path(checkpoint)
     output = Path(output or root / 'features' / 'covr2')
     source = json.loads(Path(source_manifest).read_text(encoding='utf-8'))
@@ -60,27 +66,41 @@ def prepare(root, source_manifest, checkpoint, output=None, device='cuda', limit
         grouped.setdefault(item['path'], []).append((row,item))
     # Metadata follows invalidation, before inference; an interruption is resumable.
     atomic_json(manifest_path, manifest)
-    encoder = encoder_factory(checkpoint, device=device) if grouped else None
-    for path, group in grouped.items():
+    def decode(group):
+        path=group[0][1]['path']
         try:
-            samples = read_video_segments(path, [(i['start'],i['end']) for _,i in group],15)
+            samples=read_video_segments(path, [(i['start'],i['end']) for _,i in group],15)
         except (ValueError,OSError) as error:
-            samples = [error] * len(group)
-        for (row, _), sample in zip(group, samples):
-            try:
-                if isinstance(sample,Exception): raise sample
-                tokens = validate_tokens(encoder.encode_frames(sample[0])).astype(np.float16)
-                manifest['sampling'][row['item_id']] = dict(frame_indices=sample[1],decoded_frame_count=sample[2])
-                target = token_path(output,row['item_id'])
-                with target.with_suffix('.tmp').open('wb') as f: np.save(f,tokens,allow_pickle=False)
-                os.replace(target.with_suffix('.tmp'),target)
-                print('Saved',row['item_id'],flush=True)
-            except (ValueError,OSError) as error:
-                manifest['failures'][row['item_id']] = str(error)
-                print('Skipped',row['item_id'],error,flush=True)
-        atomic_json(manifest_path,manifest)
-    del encoder
-    gc.collect()
+            samples=[error]*len(group)
+        return group,samples
+    encoder=None
+    stream=prefetch_sources(grouped.values(),decode,workers=decode_workers)
+    print(f'CoVR-2 gallery: decode workers={decode_workers}, frame batch={frame_batch_size}, '
+          f'uncached videos={len(grouped)}',flush=True)
+    try:
+        if grouped:
+            encoder=encoder_factory(checkpoint,device=device,frame_batch_size=frame_batch_size)
+        for group,samples in stream:
+            for (row, _), sample in zip(group, samples):
+                try:
+                    if isinstance(sample,Exception): raise sample
+                    tokens = validate_tokens(encoder.encode_frames(sample[0])).astype(np.float16)
+                    manifest['sampling'][row['item_id']] = dict(frame_indices=sample[1],decoded_frame_count=sample[2])
+                    target = token_path(output,row['item_id'])
+                    with target.with_suffix('.tmp').open('wb') as f: np.save(f,tokens,allow_pickle=False)
+                    os.replace(target.with_suffix('.tmp'),target)
+                    print('Saved',row['item_id'],flush=True)
+                except (ValueError,OSError) as error:
+                    manifest['failures'][row['item_id']] = str(error)
+                    print('Skipped',row['item_id'],error,flush=True)
+            atomic_json(manifest_path,manifest)
+    finally:
+        stream.close()
+        del encoder
+        gc.collect()
+    manifest['efficiency']=dict(decode_workers=decode_workers,frame_batch_size=frame_batch_size,
+        elapsed_seconds=time.perf_counter()-started)
+    atomic_json(manifest_path,manifest)
     return manifest
 
 
@@ -92,8 +112,12 @@ def main():
     p.add_argument('--output',type=Path)
     p.add_argument('--device',choices=['cuda','cpu'],default='cuda')
     p.add_argument('--limit',type=int)
+    p.add_argument('--decode-workers',type=int,default=2,help='CPU decoding threads; 0 disables prefetch.')
+    p.add_argument('--frame-batch-size',type=int,default=1,help='CoVR-2 frames per inference; increase if VRAM permits.')
     a=p.parse_args()
     if a.limit is not None and a.limit < 1: p.error('--limit must be positive')
-    prepare(a.root,a.source_manifest,a.base_checkpoint,a.output,a.device,a.limit)
+    if a.decode_workers<0 or a.frame_batch_size<1: p.error('Workers must be nonnegative and frame batch size positive.')
+    prepare(a.root,a.source_manifest,a.base_checkpoint,a.output,a.device,a.limit,
+            decode_workers=a.decode_workers,frame_batch_size=a.frame_batch_size)
 
 if __name__=='__main__': main()
