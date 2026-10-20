@@ -39,6 +39,8 @@ def make_parser():
     parser.add_argument('--decode-workers',type=int,default=2,help='CPU video decoding threads; 0 disables prefetch.')
     parser.add_argument('--video-batch-size',type=int,help='Default 4 for CLIP/CLIP4Clip, 1 for InternVideo2. InternVideo2 still infers each video separately.')
     parser.add_argument('--covr2-frame-batch-size',type=int,default=1,help='Gallery frames per inference; default 1. Try 2 if VRAM permits.')
+    parser.add_argument('--validation-workers',type=int,default=4,help='Parallel gallery validation threads; 0 runs synchronously.')
+    parser.add_argument('--gallery-cache-mb',type=int,default=512,help='RAM budget for validated gallery tokens during evaluation; 0 disables caching.')
     parser.add_argument('--gallery',choices=['targets','all'],default='targets',help='Unique targets (default), or all unique reference+target videos.')
     parser.add_argument('--top-k',type=int,default=10,help='Candidates to export per query; evaluation always ranks the FULL gallery.')
     parser.add_argument('--allow-incomplete',action='store_true',help='Explicitly permit partial downloads/extraction; omissions and denominators are reported.')
@@ -51,6 +53,8 @@ def main(argv=None):
         parser.error('Batch size, top-k and limit must be positive.')
     if args.decode_workers<0 or args.covr2_frame_batch_size<1 or (args.video_batch_size is not None and args.video_batch_size<1):
         parser.error('Decoder workers must be nonnegative and video/frame batch sizes positive.')
+    if args.validation_workers<0 or args.gallery_cache_mb<0:
+        parser.error('Validation workers and gallery cache MB must be nonnegative.')
     try:
         data=load_subset(args.root,args.split,args.subset,args.limit,args.allow_incomplete)
         output=(args.output_root or data.root/'features'/'webvid_covr'/args.split).resolve()
@@ -99,7 +103,8 @@ def main(argv=None):
                             allow_incomplete=args.allow_incomplete)
         if args.stage in ('evaluate','all'):
             evaluate(data,output/'covr2',output/'covr2_queries',results,gallery=args.gallery,
-                     top_k=args.top_k,allow_incomplete=args.allow_incomplete)
+                     top_k=args.top_k,allow_incomplete=args.allow_incomplete,
+                     validation_workers=args.validation_workers,gallery_cache_mb=args.gallery_cache_mb)
             print('CoVR-2 report:',results/'evaluation.json',flush=True)
         return 0
     except (ValueError,OSError,KeyError,RuntimeError) as error:

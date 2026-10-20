@@ -155,6 +155,37 @@ def test_evaluation_announces_work_and_shows_gallery_and_query_progress(tmp_path
     assert '3/3' in captured.err
 
 
+def test_evaluation_validates_in_workers_and_reuses_gallery_tokens(tmp_path, monkeypatch):
+    import threading
+    from visual_retrieval.evaluation import webvid_covr as evaluator
+    data,gallery,queries=evaluation_fixture(tmp_path)
+    original=np.load
+    loads=[]
+    def load(path,*args,**kwargs):
+        if Path(path).suffix=='.npy':
+            loads.append((str(path),threading.current_thread() is threading.main_thread()))
+        return original(path,*args,**kwargs)
+    monkeypatch.setattr(evaluator.np,'load',load)
+    report=evaluator.evaluate(data,gallery,queries,tmp_path/'report',validation_workers=2,gallery_cache_mb=1)
+    assert len(loads)==2 and all(not main for _,main in loads)
+    assert report['metrics']['r1']==pytest.approx(200/3)
+
+
+def test_gallery_cache_is_bounded_and_zero_cache_matches_cached_ranks(tmp_path):
+    from visual_retrieval.evaluation.webvid_covr import evaluate,TokenCache
+    data,gallery,queries=evaluation_fixture(tmp_path)
+    cache=TokenCache(10)
+    first=np.zeros(8,np.uint8);second=np.zeros(4,np.uint8)
+    cache.put('first',first);cache.put('second',second)
+    assert cache.get('first') is None and cache.get('second') is second
+    cache.put('oversized',np.zeros(11,np.uint8))
+    assert cache.get('oversized') is None and cache.get('second') is second
+    cached=evaluate(data,gallery,queries,tmp_path/'cached',validation_workers=2,gallery_cache_mb=1)
+    plain=evaluate(data,gallery,queries,tmp_path/'plain',validation_workers=0,gallery_cache_mb=0)
+    assert cached['metrics']==plain['metrics']
+    assert (tmp_path/'cached/query_ranks.csv').read_bytes()==(tmp_path/'plain/query_ranks.csv').read_bytes()
+
+
 def test_missing_or_stale_tokens_are_not_silently_evaluated(tmp_path):
     from visual_retrieval.evaluation.webvid_covr import evaluate
     from visual_retrieval.composed.gallery import token_path

@@ -1,5 +1,6 @@
 """Full-gallery CoVR-2 subset evaluation; no baseline evaluation is imported."""
 import csv
+from collections import OrderedDict
 import json
 from pathlib import Path
 from zipfile import BadZipFile
@@ -11,6 +12,30 @@ from visual_retrieval.composed.gallery import FORMAT,token_path,validate_tokens
 from visual_retrieval.composed.scoring import score_video
 from visual_retrieval.composed.webvid_covr import QUERY_FORMAT,read_query
 from .ranking_metrics import metrics_from_ranks
+from visual_retrieval.features.pipeline import prefetch_sources
+
+
+class TokenCache:
+    """Byte-bounded LRU of validated arrays; accessed only on the main thread."""
+    def __init__(self,max_bytes):
+        self.max_bytes=max_bytes
+        self.bytes=0
+        self.arrays=OrderedDict()
+
+    def get(self,id):
+        value=self.arrays.get(id)
+        if value is not None:self.arrays.move_to_end(id)
+        return value
+
+    def put(self,id,value):
+        if value.nbytes>self.max_bytes:return
+        old=self.arrays.pop(id,None)
+        if old is not None:self.bytes-=old.nbytes
+        while self.arrays and self.bytes+value.nbytes>self.max_bytes:
+            _,removed=self.arrays.popitem(last=False)
+            self.bytes-=removed.nbytes
+        self.arrays[id]=value
+        self.bytes+=value.nbytes
 
 
 def clear_reports(output):
@@ -19,9 +44,12 @@ def clear_reports(output):
         (output/name).unlink(missing_ok=True)
 
 
-def evaluate(data,gallery_dir,query_dir,output,gallery='targets',top_k=10,allow_incomplete=False):
+def evaluate(data,gallery_dir,query_dir,output,gallery='targets',top_k=10,allow_incomplete=False,
+             validation_workers=4,gallery_cache_mb=512):
     if type(top_k) is not int or top_k<1:
         raise ValueError('Use a positive exported top-k; target ranks always use the full gallery.')
+    if type(validation_workers) is not int or validation_workers<0 or type(gallery_cache_mb) is not int or gallery_cache_mb<0:
+        raise ValueError('Validation workers and gallery cache MB must be nonnegative integers.')
     gallery_dir,query_dir,output=map(Path,(gallery_dir,query_dir,output))
     output.mkdir(parents=True,exist_ok=True)
     clear_reports(output)
@@ -44,7 +72,8 @@ def evaluate(data,gallery_dir,query_dir,output,gallery='targets',top_k=10,allow_
     selected=data.candidate_ids(gallery)
     available,excluded_gallery=[],[]
     gallery_errors={}
-    for id in tqdm(selected,desc='Validating CoVR-2 gallery',unit='video'):
+    token_cache=TokenCache(gallery_cache_mb*1024*1024)
+    def validate_candidate(id):
         try:
             row=metadata.get(id)
             if row is None:raise ValueError('Gallery item was not extracted.')
@@ -53,10 +82,27 @@ def evaluate(data,gallery_dir,query_dir,output,gallery='targets',top_k=10,allow_
                 raise ValueError('Gallery video changed; rerun extraction.')
             if Path(row['path']).resolve()!=items[id]['path']:
                 raise ValueError('Gallery source path differs from the selected subset.')
-            validate_tokens(np.load(token_path(gallery_dir,id),allow_pickle=False,mmap_mode='r'))
-            available.append(id)
+            tokens=validate_tokens(np.load(token_path(gallery_dir,id),allow_pickle=False))
+            return id,tokens,None
         except (ValueError,OSError,KeyError,EOFError,BadZipFile) as error:
-            excluded_gallery.append(id);gallery_errors[id]=str(error)
+            return id,None,str(error)
+    stream=prefetch_sources(selected,validate_candidate,workers=validation_workers)
+    print(f'Validation workers: {validation_workers}; gallery token cache: {gallery_cache_mb} MB.',flush=True)
+    try:
+        for id,tokens,error in tqdm(stream,total=len(selected),desc='Validating CoVR-2 gallery',unit='video'):
+            if error is not None:
+                excluded_gallery.append(id);gallery_errors[id]=error
+            else:
+                available.append(id)
+                token_cache.put(id,tokens)
+    finally:
+        stream.close()
+    def gallery_tokens(id):
+        tokens=token_cache.get(id)
+        if tokens is None:
+            tokens=validate_tokens(np.load(token_path(gallery_dir,id),allow_pickle=False))
+            token_cache.put(id,tokens)
+        return tokens
     if excluded_gallery and not allow_incomplete:
         raise ValueError(f'CoVR-2 gallery is incomplete/stale: {excluded_gallery[:10]}; re-extract or use --allow-incomplete.')
     if not available:raise ValueError('No valid CoVR-2 gallery candidates.')
@@ -72,7 +118,7 @@ def evaluate(data,gallery_dir,query_dir,output,gallery='targets',top_k=10,allow_
             query_tokens,text=read_query(query_dir,query)
             ids=[id for id in available if id!=query['reference_id']]
             scores=np.array([score_video(query_tokens,
-                np.load(token_path(gallery_dir,id),allow_pickle=False),text) for id in ids],dtype=np.float32)
+                gallery_tokens(id),text) for id in ids],dtype=np.float32)
             if not np.isfinite(scores).all():raise ValueError('Nonfinite CoVR-2 score.')
             order=np.argsort(-scores,kind='stable')
             target=ids.index(query['video_id'])

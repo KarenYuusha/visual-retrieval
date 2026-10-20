@@ -113,9 +113,28 @@ selected raw target videos and reference JPEGs available for cache validation.
 
 After the last `covr2: encoded query ...` line, the default `all` stage releases
 the query encoder and starts CPU evaluation. Gallery validation and query scoring
-now have separate progress bars. Scoring reloads candidate token files for each
-query, so 1,000 queries against 1,000 candidates involve about a million candidate
-loads and scores. The first query must finish before the query bar advances.
+have separate progress bars. Validation uses four bounded worker threads and
+ordinary array reads rather than per-file memory mappings. Validated token arrays
+are reused during scoring in a byte-bounded LRU cache (512 MB by default).
+For 1,000 candidates this holds about 234 MiB of fp16 tokens or 469 MiB of fp32
+tokens, so candidate files normally load once per evaluation instead of once per
+query. All shape, finiteness, normalization and source-signature checks remain.
+Scoring still computes every query/candidate pair on CPU; the first query must
+finish before the query bar advances.
+
+Tune validation and RAM use independently of extraction:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_webvid_covr.py `
+  --root "S:\video_retrieval\webvid_covr" --stage evaluate `
+  --validation-workers 4 --gallery-cache-mb 512
+```
+
+Try two workers if four contend on a mechanical or network drive, or eight on a
+fast SSD. `--validation-workers 0` uses serial validation; `--gallery-cache-mb 0`
+disables the cache. Larger galleries may need a larger RAM budget to avoid
+evictions and repeated reads. The budget covers cached token arrays; validation
+workers, scoring temporaries and other program data use additional memory.
 If you interrupt evaluation, the encoded query/video caches remain available;
 rerun with `--stage evaluate` and the same split, subset, output-root and gallery
 options to evaluate them without re-encoding.
