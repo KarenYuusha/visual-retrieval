@@ -83,6 +83,8 @@ def extract_queries(data,output,base_checkpoint,query_checkpoint,device='cuda',a
         write_json(output/'manifest.json',manifest)
         if failed and not allow_incomplete:
             raise ValueError('CoVR-2 query extraction incomplete; retry or use --allow-incomplete.')
+        print(f'CoVR-2 query extraction complete: {len(successful)} successful, {reused} reused, '
+              f'{len(failed)} failed. Releasing the query encoder…',flush=True)
         return manifest
     finally:
         encoder=None

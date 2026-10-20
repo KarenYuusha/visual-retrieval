@@ -111,6 +111,15 @@ Evaluation-only uses NumPy on CPU. It loads no model and needs no baseline or
 CoVR-2 checkpoint files, but retains and checks saved feature provenance. Keep the
 selected raw target videos and reference JPEGs available for cache validation.
 
+After the last `covr2: encoded query ...` line, the default `all` stage releases
+the query encoder and starts CPU evaluation. Gallery validation and query scoring
+now have separate progress bars. Scoring reloads candidate token files for each
+query, so 1,000 queries against 1,000 candidates involve about a million candidate
+loads and scores. The first query must finish before the query bar advances.
+If you interrupt evaluation, the encoded query/video caches remain available;
+rerun with `--stage evaluate` and the same split, subset, output-root and gallery
+options to evaluate them without re-encoding.
+
 `--models clip clip4clip internvideo2` controls baseline **extraction** (all three
 by default). CoVR-2 extraction is always included. This option never enables
 baseline evaluation. Example: `--models clip` encodes CLIP and CoVR-2 only.

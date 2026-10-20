@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from zipfile import BadZipFile
 import numpy as np
+from tqdm import tqdm
 
 from visual_retrieval.common import file_signature,write_json
 from visual_retrieval.composed.gallery import FORMAT,token_path,validate_tokens
@@ -24,6 +25,8 @@ def evaluate(data,gallery_dir,query_dir,output,gallery='targets',top_k=10,allow_
     gallery_dir,query_dir,output=map(Path,(gallery_dir,query_dir,output))
     output.mkdir(parents=True,exist_ok=True)
     clear_reports(output)
+    print(f'Starting CoVR-2 evaluation on CPU: {len(data.queries)} queries. '
+          'Gallery validation and full-gallery scoring follow; no GPU model is loaded.',flush=True)
     saved=json.loads((gallery_dir/'manifest.json').read_text(encoding='utf-8'))
     identity=saved['identity']
     query_config=json.loads((query_dir/'run_config.json').read_text(encoding='utf-8'))
@@ -41,7 +44,7 @@ def evaluate(data,gallery_dir,query_dir,output,gallery='targets',top_k=10,allow_
     selected=data.candidate_ids(gallery)
     available,excluded_gallery=[],[]
     gallery_errors={}
-    for id in selected:
+    for id in tqdm(selected,desc='Validating CoVR-2 gallery',unit='video'):
         try:
             row=metadata.get(id)
             if row is None:raise ValueError('Gallery item was not extracted.')
@@ -57,8 +60,10 @@ def evaluate(data,gallery_dir,query_dir,output,gallery='targets',top_k=10,allow_
     if excluded_gallery and not allow_incomplete:
         raise ValueError(f'CoVR-2 gallery is incomplete/stale: {excluded_gallery[:10]}; re-extract or use --allow-incomplete.')
     if not available:raise ValueError('No valid CoVR-2 gallery candidates.')
+    print(f'Scoring {len(data.queries)} queries against up to {len(available)} candidates each. '
+          'The first query may take a while; the progress bar updates after each query.',flush=True)
     records,excluded_queries=[],[]
-    for query in data.queries:
+    for query in tqdm(data.queries,desc='Evaluating CoVR-2 queries',unit='query'):
         try:
             if query['query_id'] not in query_manifest['successful_query_ids']:
                 raise ValueError('No completed query encoding.')

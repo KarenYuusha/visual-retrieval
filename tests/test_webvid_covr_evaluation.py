@@ -143,6 +143,18 @@ def test_covr2_only_evaluation_full_ranks_and_labels_with_duplicate_targets(tmp_
     assert report['subset_evaluation'] and report['frame_weighting']=='runtime_modification_itc'
 
 
+def test_evaluation_announces_work_and_shows_gallery_and_query_progress(tmp_path, capsys):
+    from visual_retrieval.evaluation.webvid_covr import evaluate
+    data,gallery,queries=evaluation_fixture(tmp_path)
+    capsys.readouterr()
+    evaluate(data,gallery,queries,tmp_path/'report')
+    captured=capsys.readouterr()
+    assert 'Starting CoVR-2 evaluation on CPU' in captured.out
+    assert 'Validating CoVR-2 gallery' in captured.err
+    assert 'Evaluating CoVR-2 queries' in captured.err
+    assert '3/3' in captured.err
+
+
 def test_missing_or_stale_tokens_are_not_silently_evaluated(tmp_path):
     from visual_retrieval.evaluation.webvid_covr import evaluate
     from visual_retrieval.composed.gallery import token_path
