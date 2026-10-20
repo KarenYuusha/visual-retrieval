@@ -81,10 +81,11 @@ class SearchService:
                     effective = manifest.get('effective_precision')
                     if effective not in (None, 'fp32', 'fp16', 'bf16'):
                         raise ValueError('Invalid effective extraction precision.')
-                    # Legacy/all-cache runs may omit effective precision. Let such
-                    # galleries share the recorded encoder settings; do not invent
-                    # a historical dtype or mix unknown and recorded precision.
-                    identity += json.dumps({'effective_precision': effective}, sort_keys=True)
+                    # Requested 'auto' and explicit fp16 can describe the same
+                    # recorded dtype. Unknown historical dtypes stay distinct.
+                    space = json.loads(identity)
+                    space['precision'] = effective or f'unknown (requested {config["precision"]})'
+                    identity = json.dumps(space,sort_keys=True)
                     requested = manifest['requested_video_ids']
                     if set(ids) - set(requested):
                         raise ValueError('Gallery includes unrequested items.')
@@ -116,12 +117,30 @@ class SearchService:
     def omitted_counts(self, model):
         return {dataset: g['omitted'] for (m, dataset), g in self.galleries.items() if m == model}
 
+    def compatibility_issues(self, model):
+        galleries=[g for (m,_),g in self.galleries.items() if m==model]
+        if not galleries:return []
+        first=galleries[0]
+        base=json.loads(first['identity'])
+        issues=[]
+        for gallery in galleries[1:]:
+            other=json.loads(gallery['identity'])
+            fields=[key for key in base if base[key]!=other[key]]
+            if fields:
+                detail=', '.join(fields)
+                if 'precision' in fields:
+                    detail+=f' ({base["precision"]} vs {other["precision"]})'
+                issues.append(f'{first["spec"].label} vs {gallery["spec"].label}: {detail}')
+        return issues
+
     def _selected(self, model, dataset):
         galleries = [g for (m, key), g in self.galleries.items() if m == model and (dataset == 'all' or key == dataset)]
         if not galleries:
             raise ValueError('No saved gallery is available for this model and dataset.')
         if len({g['identity'] for g in galleries}) != 1:
-            raise ValueError('Combined search requires compatible checkpoint, tokenizer, precision and preprocessing. Select one dataset or re-extract matching galleries.')
+            details='; '.join(self.compatibility_issues(model))
+            raise ValueError('Combined search requires compatible checkpoint, tokenizer, precision and preprocessing. '
+                             +details+'. Select one dataset or re-extract matching galleries.')
         return galleries
 
     def _ensure_encoder(self, gallery):

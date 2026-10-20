@@ -67,6 +67,9 @@ def test_combined_search_rejects_incompatible_spaces_but_single_gallery_works(tm
         for filename in ('run_config.json', 'manifest.json'):
             cfg = json.loads((folder / filename).read_text()); cfg['tokenizer'] = 'different'
             write_json(folder / filename, cfg)
+    if change == 'precision':
+        path=folder/'manifest.json';cfg=json.loads(path.read_text())
+        cfg['effective_precision']='fp16';write_json(path,cfg)
     service = SearchService([make_spec(a, 'a'), make_spec(b, 'b')], device='cpu', encoder_loader=lambda *a: Encoder())
     with pytest.raises(ValueError, match='compatible'):
         service.search('alpha', 'clip')
@@ -198,6 +201,30 @@ def test_recorded_and_unknown_precision_are_not_silently_combined(tmp_path):
     service = SearchService([make_spec(tmp_path / 'a', 'a'), make_spec(tmp_path / 'b', 'b')], 'cpu', lambda *a: Encoder())
     with pytest.raises(ValueError, match='compatible'):
         service.search('alpha', 'clip')
+
+
+def test_auto_and_explicit_precision_combine_when_recorded_actual_precision_matches(tmp_path):
+    from visual_retrieval.demo.service import SearchService
+    saved_gallery(tmp_path/'a',precision='auto')
+    saved_gallery(tmp_path/'b',precision='fp32')
+    service=SearchService([make_spec(tmp_path/'a','a'),make_spec(tmp_path/'b','b')],
+                          'cpu',lambda *a:Encoder())
+    assert {row['dataset'] for row in service.search('alpha','clip')}=={'a','b'}
+    assert service.compatibility_issues('clip')==[]
+
+
+def test_incompatibility_reports_datasets_and_actual_precision(tmp_path):
+    from visual_retrieval.demo.service import SearchService
+    saved_gallery(tmp_path/'a')
+    folder=saved_gallery(tmp_path/'b')
+    path=folder/'manifest.json';doc=json.loads(path.read_text())
+    doc['effective_precision']='fp16';write_json(path,doc)
+    service=SearchService([make_spec(tmp_path/'a','a'),make_spec(tmp_path/'b','b')],
+                          'cpu',lambda *a:Encoder())
+    details='; '.join(service.compatibility_issues('clip'))
+    assert all(value in details for value in ('A','B','precision','fp32','fp16'))
+    with pytest.raises(ValueError,match='A.*B.*precision'):
+        service.search('alpha','clip')
 
 
 def test_cuda_query_precision_must_match_gallery(tmp_path):

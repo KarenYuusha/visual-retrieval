@@ -355,6 +355,10 @@ def main(argv=None):
         parser.error(str(error))
     for issue in service.issues:
         print('Unavailable gallery:', issue)
+    text_service = getattr(service,'text',service)
+    for model in service.available_models:
+        for issue in text_service.compatibility_issues(model):
+            print(f'Combined {model} mismatch: {issue}')
     report_models = service.available_models + (['covr2'] if getattr(service,'composed_available',False) else [])
     for model in report_models:
         for dataset, count in service.gallery_counts(model).items():

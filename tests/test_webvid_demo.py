@@ -73,3 +73,18 @@ def test_composed_search_uses_configured_tokens_and_keeps_raw_video_root(tmp_pat
     result=service.search_composed(np.zeros((4,4,3),np.uint8),'run',dataset=spec.key)[0]
     assert result['path']==str((spec.root/'raw_videos/same.mp4').resolve())
     assert service.search_composed(np.zeros((4,4,3),np.uint8),'run',source=(spec.key,'same'))==[]
+
+
+def test_demo_preflight_reports_actual_combined_precision_mismatch(tmp_path,capsys):
+    import json
+    from visual_retrieval.demo.app import main
+    first=saved_gallery(tmp_path/'msr_vtt')
+    first.rename(first.with_name('clip_vit_b32_12f_mean'))
+    second=saved_gallery(tmp_path/'webvid_covr')
+    path=second/'manifest.json';doc=json.loads(path.read_text())
+    doc['effective_precision']='fp16';path.write_text(json.dumps(doc))
+    output=tmp_path/'webvid_covr/features/webvid_covr/test/clip'
+    output.parent.mkdir(parents=True);second.rename(output)
+    main(['--base-root',str(tmp_path),'--check','--device','cpu'])
+    text=capsys.readouterr().out
+    assert 'Combined clip mismatch: MSR-VTT vs WebVid-CoVR: precision (fp32 vs fp16)' in text

@@ -53,6 +53,9 @@ Keep the PC awake and its terminal running. Ctrl+C stops the demo.
 Use either `--base-root` or `--config`. All-dataset search requires matching
 checkpoint, tokenizer, preprocessing and extraction precision across galleries.
 If incompatible, select one dataset or re-extract matching features.
+`--check` prints the datasets and fields that differ. Requested `auto` and explicit
+precision can combine when their recorded actual precision matches; unknown
+historical precision is not treated as a verified match.
 
 Model switches load one GPU encoder at a time and may take a while.
 ActivityNet previews play only the retrieved segment. Media caches are under
