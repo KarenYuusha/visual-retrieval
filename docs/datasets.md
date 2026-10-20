@@ -1,19 +1,30 @@
-# Runtime datasets
+# Dataset paths and formats
 
-The defaults are `S:\video_retrieval\msr_vtt`, `S:\video_retrieval\vatex`, and `S:\video_retrieval\activitynet_captions`. Repository `data/` annotations are reference-only. No runtime command falls back to them.
+Runtime base: `S:\video_retrieval`. Repository `data/` contains reference records,
+not the active video database. [Run baseline extraction](baselines.md).
 
-Each root needs `subset.json` containing video-ID string lists under `train`, `test`, `val`, or `validation`. IDs are combined with first-occurrence deduplication; seed/size/target fields are ignored. MSR-VTT retains its original train+test selection. Every selected item must have a nonempty caption.
-
-Videos are `raw_videos/<ID>.mp4`. ActivityNet can also resolve filenames without the `v_` prefix. The canonical manifest records item ID, source video ID, path and optional interval; queries record caption text and the correct item ID.
-
-| Dataset | Annotation files under raw_data/ or root | Schema |
+| Dataset folder | Annotations under `raw_data\` or root | Evaluation unit |
 |---|---|---|
-| MSR-VTT | MSRVTT_data.json | sentences rows: video_id, caption, optional sen_id |
-| VATEX | vatex_training_v1.0.json + vatex_validation_v1.0.json | list of videoID and enCap arrays |
-| ActivityNet | train.json + val_1.json | object keyed by video ID, with sentences/timestamps |
+| `msr_vtt` | `MSRVTT_data.json`: `sentences` with `video_id`, `caption` | Video; all captions |
+| `vatex` | `vatex_training_v1.0.json`, `vatex_validation_v1.0.json`: `videoID`, `enCap` | Clip; all English captions |
+| `activitynet_captions` | `train.json`, `val_1.json`: sentences + timestamps keyed by video | Captioned segment |
 
-`--annotations PATH [PATH ...]` overrides extraction annotation discovery. ActivityNet accepts `--activitynet-val-file val_2.json` instead of val_1; never mix conflicting versions implicitly.
+Each root needs `subset.json` (ID lists under train/test/val/validation) and
+`raw_videos\<ID>.mp4`. Selected splits are combined and IDs deduplicated.
+ActivityNet IDs use `v_ID__seg0000`; frames/playback stay inside `[start,end)`.
+Invalid/empty intervals fail rather than generating embeddings.
 
-ActivityNet segment IDs are `v_ID__seg0000`. Decoder samples only actual presentation times within `[start,end)`, including variable-frame-rate MP4s. Short intervals repeat the final frame. An interval after the last decoded frame fails; an oversized end uses the available frames. Missing/unusable timestamp timelines fail explicitly, with a transcode suggestion.
+| Task | Command/option |
+|---|---|
+| Verify all runtime datasets | `.\.venv\Scripts\python.exe scripts\run_baselines.py --stage check` |
+| Export canonical item/query manifests (optional) | `.\.venv\Scripts\python.exe scripts\prepare_manifests.py` |
+| Change base folder | Runner: `--base-root PATH` |
+| Change a single root | Runner: `--msrvtt-root PATH`, `--vatex-root PATH`, `--activitynet-root PATH` |
+| Supply explicit annotations | `scripts\extract_features.py --annotations PATH [PATH ...]` |
+| Use alternate ActivityNet validation file | `--activitynet-val-file val_2.json` |
 
-Canonical manifests can be exported for inspection with `scripts/prepare_manifests.py`. Extraction consumes the same dataset adapter directly and records hashes of the subset/annotation files, so a manifest export is not a prerequisite. Fair comparisons validate actual saved query/item identities.
+Existing downloaders are `download_data/download_msrvtt.py`, `download_vatex.py`,
+and `download_activitynet.py`; edit their top-level roots/sample settings before
+running. MSR-VTT also needs `datasets`; VATEX needs yt-dlp, Deno and configured
+browser cookies. For adjustable image/text triplets, use the separate
+[WebVid-CoVR downloader](webvid_covr_download.md).

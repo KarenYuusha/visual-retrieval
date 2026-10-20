@@ -1,50 +1,10 @@
-# ActivityNet Captions Subset
+# ActivityNet Captions reference subset
 
-Dataset:
-ActivityNet Captions
+- Recorded download: 500 train + 500 validation videos; seed 67.
+- Annotations: official `train.json` + `val_1.json`; source: TornadoLabs MP4 mirror.
+- IDs retain `v_`; annotations provide duration, timestamps and sentences.
+- Runtime default: one gallery item/query per captioned segment, combining splits.
+- Runtime root: `S:\video_retrieval\activitynet_captions`.
 
-Annotations:
-Official ActivityNet Captions train.json and val_1.json.
-
-Video source:
-TornadoLabs/activitynet direct MP4 mirror.
-
-Seed:
-67
-
-Train target:
-500
-
-Train successfully downloaded:
-500
-
-Validation target:
-500
-
-Validation successfully downloaded:
-500
-
-## IDs
-
-Files retain the original ActivityNet Captions identifier.
-
-Example:
-
-v_QOlSCBRmfWY.mp4
-
-## Captions
-
-train.json and val_1.json contain:
-
-- duration
-- timestamps
-- sentences
-
-Each video contains multiple temporally localized captions.
-
-## Evaluation
-
-For a whole-video retrieval baseline, the segment sentences can
-be concatenated to form one paragraph query for the video.
-
-subset.json defines the exact videos used in this project.
+This folder is reference-only. Runtime `subset.json` defines the actual selection.
+[Dataset format](../../docs/datasets.md) · [Run baselines](../../docs/baselines.md).

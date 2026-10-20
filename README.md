@@ -1,209 +1,46 @@
 # Interactive video retrieval
 
-Class-project code for comparing **CLIP**, **CLIP4Clip**, and **InternVideo2**, then evaluating query refinement and relevance feedback. No training is performed by these tools.
+Search videos with text (CLIP, CLIP4Clip, InternVideo2) or a reference image +
+text modification (CoVR-2). Uses pretrained weights; no local training.
 
-Runtime datasets live outside the repository:
+## Start here
 
-| Dataset | Default root | Gallery/query protocol |
-|---|---|---|
-| MSR-VTT | `S:\video_retrieval\msr_vtt` | Combined train+test videos, every caption |
-| VATEX | `S:\video_retrieval\vatex` | Combined train+validation clips, every English caption |
-| ActivityNet Captions | `S:\video_retrieval\activitynet_captions` | Combined train+validation timestamped segments, one sentence per segment |
+Run commands in **PowerShell from `P:\visual-retrieval`**. Dataset files stay under
+`S:\video_retrieval`; the repository's `data/` folder is reference-only.
 
-**The repository's `data/` directory is reference-only. No command selects it automatically.** Each runtime root must contain `subset.json`, `raw_videos/`, and annotation files under `raw_data/` (or the root). See [dataset formats](docs/datasets.md).
-
-For a five-example WebVid-CoVR trial, see the [adjustable subset downloader](docs/webvid_covr_download.md).
-Then use the [four-model encoding and CoVR-2-only evaluation pipeline](docs/webvid_covr_evaluation.md).
-
-## Install on Windows (Python 3.11, NVIDIA GPU)
-
-Run from the cloned repository root:
-
-```powershell
-git pull
-uv venv --python 3.11 .venv
-uv pip install --python .venv\Scripts\python.exe --index-strategy unsafe-best-match -r requirements.txt
-.\.venv\Scripts\python.exe -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
-```
-
-Expected GPU build: `2.5.1+cu121`, `12.1`, `True`. The package requires explicit CUDA builds of Torch and torchvision. CPU execution requires `--device cpu`; there is no silent fallback. These requirements target Windows/Linux, not macOS.
-
-For pip: `py -3.11 -m venv .venv`, then `.\.venv\Scripts\python.exe -m pip install -r requirements.txt`.
-
-## Check data and run baselines
-
-For the minimal Gradio text-to-video demo, install `requirements-demo.txt`, then
-run `.\.venv\Scripts\python.exe scripts\demo.py`. It defaults to all available
-datasets and supports CLIP, CLIP4Clip and InternVideo2. To open it from a laptop on
-another network, set `VR_DEMO_USERNAME` and `VR_DEMO_PASSWORD` and launch with
-`--share`. See [demo installation, configuration and remote access](docs/demo.md).
-For reference-image + text search, follow the [CoVR-2 setup guide](docs/covr2.md).
-The composer supports image paste, and video previews offer Copy frame / Use frame.
-
-```powershell
-# File/annotation checks only; no checkpoint download or video decoding
-.\.venv\Scripts\python.exe scripts\run_baselines.py --stage check
-
-# Optional: export canonical manifests for inspecting items/queries
-.\.venv\Scripts\python.exe scripts\prepare_manifests.py
-
-# Run the two automatically available models on all three datasets
-.\.venv\Scripts\python.exe scripts\run_baselines.py --models clip internvideo2
-
-# Run all three: CLIP4Clip requires a trained meanP/2d ViT-B/32 checkpoint
-.\.venv\Scripts\python.exe scripts\run_baselines.py --clip4clip-checkpoint "S:\video_retrieval\models\clip4clip_webvid150k_hf.bin"
-```
-
-Supply the real checkpoint file. CLIP4Clip accepts original `clip.*` weights or a
-complete Hugging Face CLIP-format checkpoint such as Searchium's WebVid-150k model.
-Plain state dictionaries and `model`/`module`/`state_dict` wrappers are supported.
-Hugging Face tensors are translated automatically in memory; no manual conversion
-or official repo clone is needed. Temporal (`seqTransf`/`seqLSTM`), cross-encoder
-and 3d-patch checkpoints are rejected by this meanP adapter. Missing trained
-weights are never substituted with base CLIP weights. See [model details and
-checkpoint requirements](docs/models.md).
-
-Download the trained Searchium checkpoint once (approximately 605 MB):
-
-```powershell
-New-Item -ItemType Directory -Force "S:\video_retrieval\models" | Out-Null
-Invoke-WebRequest -Uri "https://huggingface.co/Searchium-ai/clip4clip-webvid150k/resolve/main/pytorch_model.bin" -OutFile "S:\video_retrieval\models\clip4clip_webvid150k_hf.bin"
-
-# Extract CLIP4Clip on all three datasets, reusing any compatible caches.
-.\.venv\Scripts\python.exe scripts\run_baselines.py --stage extract --models clip4clip --clip4clip-checkpoint "S:\video_retrieval\models\clip4clip_webvid150k_hf.bin"
-
-# Evaluate the saved bundles, permitting explicitly reported omitted items.
-foreach ($dataset in @("msr_vtt", "vatex", "activitynet_captions")) {
-    .\.venv\Scripts\python.exe scripts\evaluate_baselines.py --features-dir "S:\video_retrieval\$dataset\features\clip4clip_vit_b32_12f_meanP" --allow-incomplete
-}
-```
-
-If ActivityNet extraction has an unreadable segment, it saves the partial bundle
-before exiting with an incomplete-extraction error. Run the evaluation commands
-after that exit. Verify omissions match across models before comparing metrics;
-the strict cross-model comparison command still requires complete bundles.
-Searchium is a WebVid-150k trained checkpoint, so identify it by that source in
-your report rather than as the original paper's MSR-VTT fine-tuned checkpoint.
-
-CLIP and InternVideo2 download weights/tokenizers on first extraction. If InternVideo2 access is gated, accept the conditions on its model page and authenticate with Hugging Face. Local overrides: `--clip-checkpoint DIR`, `--internvideo2-checkpoint FILE`.
-
-### Run one model/dataset
-
-```powershell
-.\.venv\Scripts\python.exe scripts\extract_features.py --config configs\clip.yaml --dataset vatex
-.\.venv\Scripts\python.exe scripts\extract_features.py --model clip4clip --dataset msrvtt --checkpoint "S:\video_retrieval\models\clip4clip_webvid150k_hf.bin"
-.\.venv\Scripts\python.exe scripts\extract_features.py --model internvideo2 --dataset activitynet
-```
-
-Model profile YAML values are defaults; explicit CLI values override them. `--data-root PATH` changes a single dataset location. `--annotations PATH [PATH ...]` supplies explicit annotation files. `--text-batch-size 8` can reduce memory use.
-
-Gallery extraction groups uncached segments by source video, sharing the timestamp
-scan and selected-frame pass across its segments. Two CPU decoding threads prepare
-sources while inference runs on the main thread. CLIP and CLIP4Clip default to four
-gallery items per GPU batch (48 frames with the 12-frame profiles); InternVideo2
-defaults to one item to keep VRAM use modest. Frame selection and per-video pooling
-are unchanged, so existing feature caches remain reusable.
-
-```powershell
-# Resume with the optimized defaults, including the partly extracted ActivityNet gallery.
-.\.venv\Scripts\python.exe scripts\run_baselines.py --models clip internvideo2
-
-# Tune only CLIP on ActivityNet: four decoding threads, 8 segments (96 frames) per batch.
-.\.venv\Scripts\python.exe scripts\run_baselines.py --datasets activitynet --models clip --decode-workers 4 --video-batch-size 8
-```
-
-Start with the defaults. If GPU utilization remains low and CPU/RAM can support it,
-try `--decode-workers 4`. If inference is the bottleneck and VRAM is available,
-increase `--video-batch-size`. Reduce that size after a CUDA out-of-memory error;
-completed item caches are retained. A runner batch-size override applies to every
-selected model, so use model-specific runs when tuning CLIP. For limited RAM or
-debugging, use `--decode-workers 0 --video-batch-size 1`. Prefetch retains only a
-bounded number of source groups, but RGB frames for all uncached segments of each
-active source still occupy RAM. These execution options are recorded in manifest
-efficiency metadata and do not invalidate feature caches. `--text-batch-size`
-controls caption encoding only; `--batch-size` controls ranking evaluation only.
-
-The all-model runner accepts `--base-root`, `--msrvtt-root`, `--vatex-root`, `--activitynet-root`, `--datasets`, and `--models`. `configs/datasets.yaml` documents the canonical external layout. Outputs can be moved with `--output-root PATH`; each dataset/model gets its own subfolder.
-
-ActivityNet defaults to `--activitynet-mode segments`. Use `--activitynet-mode video` for one whole-video embedding and one concatenated paragraph query; long paragraphs are truncated by each model's tokenizer. Use a separate output directory/root when changing protocols. `activitynet_captions` remains an accepted alias in the extraction CLI.
-
-## Saved features and evaluation
-
-Default feature folders are inside each external dataset:
-
-| Model | Folder under `<dataset>\features\` |
+| I want to… | Guide |
 |---|---|
-| CLIP | `clip_vit_b32_12f_mean` |
-| CLIP4Clip | `clip4clip_vit_b32_12f_meanP` |
-| InternVideo2 | `internvideo2_stage2_1b_all` |
+| Extract/evaluate CLIP, CLIP4Clip, InternVideo2 | [Text retrieval baselines](docs/baselines.md) |
+| Open the demo locally or from my laptop | [Demo](docs/demo.md) |
+| Search using an image + text | [CoVR-2 setup](docs/covr2.md) |
+| Download 5 WebVid-CoVR samples | [WebVid-CoVR download](docs/webvid_covr_download.md) |
+| Encode WebVid-CoVR and evaluate only CoVR-2 | [WebVid-CoVR evaluation](docs/webvid_covr_evaluation.md) |
+| Find dataset/checkpoint/output details | [Datasets](docs/datasets.md) · [Models](docs/models.md) · [Error analysis](docs/error_analysis.md) |
 
-Each folder contains normalized float32 `features.npz` (`video_features`, `video_ids`, `text_features`, `text_video_ids`), `queries.json`, `manifest.json`, `run_config.json`, resumable `video_cache/`, `text_cache.npz`, and `failed_videos.json`.
+## Install once
 
-```powershell
-# Evaluate saved features: no GPU or model needed
-.\.venv\Scripts\python.exe scripts\evaluate_baselines.py --features-dir "S:\video_retrieval\vatex\features\clip_vit_b32_12f_mean"
-
-# Reevaluate all three saved model outputs; no checkpoints needed
-.\.venv\Scripts\python.exe scripts\run_baselines.py --stage evaluate
-
-# Enforce matched galleries and query text/labels before comparing
-.\.venv\Scripts\python.exe scripts\run_baselines.py --stage compare
-```
-
-Reports include extraction wall time, peak allocated GPU memory (when CUDA is used),
-feature bundle size and cache reuse counts. Cached extraction timings are labeled by
-the reused item count; compare fresh extraction runs when reporting throughput.
-Reports contain R@1/R@5/R@10 as percentages and MRR on a 0–1 scale using full-gallery ranks. Ties use gallery order. Evaluation saves `evaluation.json`, per-query `query_ranks.csv`, and `predictions.jsonl` in each feature directory. The runner saves aggregate results to `S:\video_retrieval\reports\baseline_comparison.json`; `--summary PATH` overrides it.
-
-The CSV now includes ground-truth and predicted top-1 video/segment IDs,
-`is_correct`, their cosine scores, `score_gap` (predicted minus ground-truth
-score), and paths/segment times when available. The original `video_id` column
-remains an alias for the ground-truth ID. JSONL contains one query per line with
-the same labels, full-gallery target rank, top-1/ground-truth item metadata and
-the top 10 candidate IDs/scores by default. Candidate metadata for the remaining
-top results is in `manifest.json`. Cosine scores are not calibrated probabilities.
-
-Rerun evaluation on existing features to generate these outputs; no feature
-extraction or model loading is needed:
+Requires Python 3.11/3.12, an NVIDIA GPU, and FFmpeg/ffprobe on PATH.
+For a new environment:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\evaluate_baselines.py --features-dir "S:\video_retrieval\activitynet_captions\features\clip4clip_vit_b32_12f_meanP" --allow-incomplete --top-k 10
+cd P:\visual-retrieval
+uv venv --python 3.12 .venv
+uv pip install --python .venv\Scripts\python.exe --index-strategy unsafe-best-match -r requirements-demo.txt
+.\.venv\Scripts\python.exe -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+ffmpeg -version
+ffprobe -version
 ```
 
-`--top-k` changes only the number of saved candidates, never the ranks or
-metrics. It is capped at the gallery size. The baseline runner and comparison
-commands generate 10 candidates by default. See the [visual error-analysis
-workflow](docs/error_analysis.md) for a proposed viewer and manual error labels.
+Expected Torch output: `2.5.1+cu121 12.1 True`. Use the requirements files to keep
+CUDA builds pinned. For an existing environment, skip `uv venv`; run `git pull`
+and the install command when dependencies change.
 
-Comparisons require identical gallery order, query IDs, caption text, targets and protocol, and complete galleries. They fail explicitly rather than comparing different subsets. For a standalone JSON+CSV table use `scripts\compare_models.py --features-dirs DIR1 DIR2 DIR3 --output PATH.json`.
-
-Extraction reuses valid caches; source-video changes invalidate individual embeddings. Model/data/preprocessing changes require a new output directory. Missing files stop extraction by default. `--allow-missing` permits a partial extraction, but it exits with an error after saving its partial bundle. Retry to complete it. Standalone evaluation can deliberately score it using `--allow-incomplete`; cross-model comparison requires completeness.
-
-## Search and interaction
-
-```powershell
-.\.venv\Scripts\python.exe scripts\search.py --features-dir "S:\video_retrieval\msr_vtt\features\internvideo2_stage2_1b_all" --query "a man carrying an umbrella"
-```
-
-Search loads the matching checkpoint from saved provenance. Results include source-video paths and segment timestamps. `--data-root` relocates playback paths.
-
-The interaction package includes latest/accumulated query history and normalized relevance feedback, with multi-turn session evaluation. See [session format and experiments](docs/interaction.md). The Gradio demo provides text-to-video search; query refinement and relevance feedback are available in the backend and can be added to the UI later.
-
-## Code structure and compatibility
-
-Implementation lives in `src/visual_retrieval/`: `data/`, `models/`, `features/`, `retrieval/`, `interaction/`, `evaluation/`, and `cli/`. `scripts/` contains thin entrypoints. `configs/` holds baseline profiles. See [architecture and milestones](docs/project_structure.md).
-
-Old `internvideo2_retrieval/` commands are compatibility wrappers over the shared package; its corrected tokenizer and cache configuration are retained. Runtime folder defaults now use the names above. Existing files under an older folder name remain usable with an explicit `--data-root` or runner root override.
-
-The original CLIP HDF5 scripts still work through `extract_clip_features.py` and `evaluate_clip_retrieval.py`. Their implementation lives in `src/visual_retrieval/legacy/`. Old `.h5` files are not silently converted/reused by the new NPZ pipeline. Use the new shared pipeline for matched comparisons.
-
-## Validation
+## Develop
 
 ```powershell
 uv pip install --python .venv\Scripts\python.exe --index-strategy unsafe-best-match -r requirements-dev.txt
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Tests cover legacy InternVideo2 behavior, cache-only CLIP/CLIP4Clip/InternVideo2 extraction, real reduced model architectures, timestamped decoding, stable ranks, matching comparison inputs, external defaults, entrypoints outside the repository, query refinement, and feedback timing.
-
-Your full checkpoints and S: drive videos cannot be executed in this development workspace. No real dataset scores are fabricated. These are combined-subset experiments rather than official benchmark scores. Document whether each downloaded checkpoint was trained on any of your evaluation datasets; no local fine-tuning does not establish zero-shot evaluation.
+[Code map](docs/project_structure.md) · [Optional session experiments](docs/interaction.md).
+Historical plans/specs in `docs/superpowers/` are archive notes, not run instructions.
