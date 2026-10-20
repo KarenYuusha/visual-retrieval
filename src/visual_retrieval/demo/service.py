@@ -49,8 +49,9 @@ def _item_metadata(spec, item_id, item, segmented):
 
 
 class SearchService:
-    def __init__(self, datasets, device='cuda', encoder_loader=load_saved_encoder):
+    def __init__(self, datasets, device='cuda', encoder_loader=load_saved_encoder,allow_unknown_precision=False):
         self.device, self.encoder_loader = device, encoder_loader
+        self.allow_unknown_precision=allow_unknown_precision
         self.galleries, self.issues, self._indexes = {}, [], {}
         self._encoder, self._encoder_key = None, None
         self._lock = threading.RLock()
@@ -119,7 +120,7 @@ class SearchService:
 
     def compatibility_issues(self, model):
         galleries=[g for (m,_),g in self.galleries.items() if m==model]
-        if not galleries:return []
+        if not galleries or self._can_combine(galleries):return []
         first=galleries[0]
         base=json.loads(first['identity'])
         issues=[]
@@ -133,11 +134,31 @@ class SearchService:
                 issues.append(f'{first["spec"].label} vs {gallery["spec"].label}: {detail}')
         return issues
 
+    def _can_combine(self,galleries):
+        if len({g['identity'] for g in galleries})<=1:return True
+        if not self.allow_unknown_precision:return False
+        spaces=[json.loads(g['identity']) for g in galleries]
+        # Opt-in covers only old 'auto' caches without recorded dtype. Other
+        # provenance must match, and all recorded dtypes must agree.
+        cores={json.dumps({k:v for k,v in space.items() if k!='precision'},sort_keys=True) for space in spaces}
+        known={g['effective_precision'] for g in galleries if g['effective_precision'] is not None}
+        return (len(cores)==1 and len(known)==1 and all(
+            g['effective_precision'] is not None or space['precision']=='unknown (requested auto)'
+            for g,space in zip(galleries,spaces)))
+
+    def legacy_precision_note(self,model):
+        galleries=[g for (m,_),g in self.galleries.items() if m==model]
+        if (self.allow_unknown_precision and self._can_combine(galleries)
+                and any(g['effective_precision'] is None for g in galleries)
+                and any(g['effective_precision'] is not None for g in galleries)):
+            return 'Legacy extraction precision is unverified; combined search enabled by explicit opt-in.'
+        return ''
+
     def _selected(self, model, dataset):
         galleries = [g for (m, key), g in self.galleries.items() if m == model and (dataset == 'all' or key == dataset)]
         if not galleries:
             raise ValueError('No saved gallery is available for this model and dataset.')
-        if len({g['identity'] for g in galleries}) != 1:
+        if not self._can_combine(galleries):
             details='; '.join(self.compatibility_issues(model))
             raise ValueError('Combined search requires compatible checkpoint, tokenizer, precision and preprocessing. '
                              +details+'. Select one dataset or re-extract matching galleries.')
@@ -161,6 +182,9 @@ class SearchService:
             gallery = next((g for (m, _), g in self.galleries.items() if m == model), None)
             if gallery is None:
                 raise ValueError('No saved gallery is available for this model.')
+            galleries=[g for (m,_),g in self.galleries.items() if m==model]
+            if self.allow_unknown_precision and self._can_combine(galleries):
+                gallery=next((g for g in galleries if g['effective_precision'] is not None),gallery)
             self._ensure_encoder(gallery).encode_text(['a video'])
 
     def search(self, text, model, dataset='all', top_k=10, min_score=.2, score_margin=.05):
@@ -183,7 +207,10 @@ class SearchService:
                 index = GalleryIndex([item['key'] for item in metadata], features)
                 self._indexes[index_key] = (index, {item['key']: item for item in metadata})
             index, metadata = self._indexes[index_key]
-            query = self._ensure_encoder(galleries[0]).encode_text([text.strip()])[0]
+            query_gallery=galleries[0]
+            if self.allow_unknown_precision:
+                query_gallery=next((g for g in galleries if g['effective_precision'] is not None),query_gallery)
+            query = self._ensure_encoder(query_gallery).encode_text([text.strip()])[0]
             results = index.search(query, len(index.item_ids) if top_k is None else top_k)
             if top_k is None and results:
                 cutoff = max(min_score, results[0]['cosine_similarity'] - score_margin)

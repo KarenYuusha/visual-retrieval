@@ -57,6 +57,12 @@ If incompatible, select one dataset or re-extract matching features.
 precision can combine when their recorded actual precision matches; unknown
 historical precision is not treated as a verified match.
 
+For older `auto` caches missing actual precision, append
+`--allow-unknown-precision` to the launch command. This permits combined search
+only when all other model settings match and recorded precisions agree. The demo
+uses a gallery with recorded precision for query encoding and labels the legacy
+precision unverified. Re-extract matching caches for strictly verified comparisons.
+
 Model switches load one GPU encoder at a time and may take a while.
 ActivityNet previews play only the retrieved segment. Media caches are under
 `S:\video_retrieval\demo_cache`; stop the app before deleting them to reclaim space.

@@ -88,3 +88,18 @@ def test_demo_preflight_reports_actual_combined_precision_mismatch(tmp_path,caps
     main(['--base-root',str(tmp_path),'--check','--device','cpu'])
     text=capsys.readouterr().out
     assert 'Combined clip mismatch: MSR-VTT vs WebVid-CoVR: precision (fp32 vs fp16)' in text
+
+
+def test_demo_preflight_legacy_opt_in_is_forwarded_and_reported(tmp_path,capsys):
+    import json
+    from visual_retrieval.demo.app import main
+    first=saved_gallery(tmp_path/'msr_vtt')
+    path=first/'manifest.json';doc=json.loads(path.read_text());doc.pop('effective_precision')
+    path.write_text(json.dumps(doc));first.rename(first.with_name('clip_vit_b32_12f_mean'))
+    second=saved_gallery(tmp_path/'webvid_covr')
+    output=tmp_path/'webvid_covr/features/webvid_covr/test/clip'
+    output.parent.mkdir(parents=True);second.rename(output)
+    main(['--base-root',str(tmp_path),'--check','--device','cpu','--allow-unknown-precision'])
+    text=capsys.readouterr().out
+    assert 'Legacy extraction precision is unverified' in text
+    assert 'Combined clip mismatch' not in text

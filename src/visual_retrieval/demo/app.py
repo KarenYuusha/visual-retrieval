@@ -321,6 +321,8 @@ def main(argv=None):
     parser.add_argument('--cache-dir', type=Path, help='Generated thumbnails/previews; default BASE/demo_cache.')
     parser.add_argument('--model', choices=MODEL_NAMES, help='Initial model; otherwise use configuration default.')
     parser.add_argument('--device', choices=['cuda','cpu'], default='cuda')
+    parser.add_argument('--allow-unknown-precision',action='store_true',
+                        help='Allow legacy auto caches with unrecorded dtype alongside otherwise matching galleries.')
     parser.add_argument('--covr2-base-checkpoint', type=Path, help='Frozen BLIP-2 COCO checkpoint.')
     parser.add_argument('--covr2-checkpoint', type=Path, help='Released CoVR-2 coir+covr.ckpt.')
     parser.add_argument('--page-size', type=int, default=20)
@@ -341,7 +343,7 @@ def main(argv=None):
     try:
         auth = auth_from_env(args.share) if not args.check else None
         config = DemoConfig.from_yaml(args.config) if args.config else DemoConfig.defaults(base)
-        service = SearchService(config.datasets, args.device)
+        service = SearchService(config.datasets, args.device,allow_unknown_precision=args.allow_unknown_precision)
         if bool(args.covr2_base_checkpoint) != bool(args.covr2_checkpoint):
             raise ValueError('Provide both CoVR-2 checkpoint options.')
         if args.covr2_checkpoint:
@@ -357,6 +359,8 @@ def main(argv=None):
         print('Unavailable gallery:', issue)
     text_service = getattr(service,'text',service)
     for model in service.available_models:
+        note=text_service.legacy_precision_note(model)
+        if note:print(f'Combined {model}: {note}')
         for issue in text_service.compatibility_issues(model):
             print(f'Combined {model} mismatch: {issue}')
     report_models = service.available_models + (['covr2'] if getattr(service,'composed_available',False) else [])

@@ -227,6 +227,37 @@ def test_incompatibility_reports_datasets_and_actual_precision(tmp_path):
         service.search('alpha','clip')
 
 
+def test_legacy_precision_opt_in_uses_verified_query_encoder_without_changing_cache(tmp_path):
+    from visual_retrieval.demo.service import SearchService
+    old=saved_gallery(tmp_path/'a')
+    path=old/'manifest.json';doc=json.loads(path.read_text());doc.pop('effective_precision')
+    write_json(path,doc);before=path.read_bytes()
+    known=saved_gallery(tmp_path/'b')
+    loads=[]
+    service=SearchService([make_spec(tmp_path/'a','a'),make_spec(tmp_path/'b','b')],
+        'cpu',lambda folder,*a:(loads.append(folder) or Encoder()),allow_unknown_precision=True)
+    service.warmup('clip')
+    assert {r['dataset'] for r in service.search('alpha','clip')}=={'a','b'}
+    assert loads==[known] and path.read_bytes()==before
+    assert service.compatibility_issues('clip')==[]
+    assert service.legacy_precision_note('clip')
+
+
+@pytest.mark.parametrize('change',['checkpoint','known_precision','explicit_unknown'])
+def test_legacy_precision_opt_in_keeps_real_mismatches_blocked(tmp_path,change):
+    from visual_retrieval.demo.service import SearchService
+    old=saved_gallery(tmp_path/'a',precision='fp16' if change=='explicit_unknown' else 'auto')
+    path=old/'manifest.json';doc=json.loads(path.read_text());doc.pop('effective_precision');write_json(path,doc)
+    saved_gallery(tmp_path/'b')
+    saved_gallery(tmp_path/'c',checkpoint='different' if change=='checkpoint' else 'trained')
+    if change=='known_precision':
+        path=tmp_path/'c/features/clip/manifest.json';doc=json.loads(path.read_text())
+        doc['effective_precision']='fp16';write_json(path,doc)
+    service=SearchService([make_spec(tmp_path/key,key) for key in ('a','b','c')],
+        'cpu',lambda *a:Encoder(),allow_unknown_precision=True)
+    with pytest.raises(ValueError,match='compatible'):service.search('alpha','clip')
+
+
 def test_cuda_query_precision_must_match_gallery(tmp_path):
     from visual_retrieval.demo.service import SearchService
     saved_gallery(tmp_path / 'a')
