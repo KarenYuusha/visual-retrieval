@@ -17,6 +17,13 @@ The grid adjusts its columns automatically and shows 20 results per page.
 Text results use a score threshold, so counts vary and may be zero.
 Image + text search requires [CoVR-2 setup](covr2.md).
 
+**WebVid-CoVR:** after [encoding](webvid_covr_evaluation.md), restart the demo and
+select **WebVid-CoVR** in the dataset list. Default discovery uses
+`S:\video_retrieval\webvid_covr\features\webvid_covr\test` for all four model spaces.
+For image + text, launch with both CoVR-2 checkpoint options from the setup guide.
+For another split/output, edit `configs/demo.yaml` baseline paths and
+`covr2_features` (relative to the dataset root), then launch with `--config`.
+
 ## Laptop on another network
 
 Set credentials and launch in the same PC terminal:

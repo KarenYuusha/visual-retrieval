@@ -46,7 +46,7 @@ class ComposedSearchService:
         self.issues = list(text_service.issues)
         base_hash=digest(self.base)
         for spec in datasets:
-            folder=spec.root/'features'/'covr2'
+            folder=spec.covr2_features or spec.root/'features'/'covr2'
             try:
                 manifest=json.loads((folder/'manifest.json').read_text(encoding='utf-8'))
                 identity=manifest['identity']

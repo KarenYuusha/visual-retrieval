@@ -13,6 +13,7 @@ class DatasetSpec:
     label: str
     root: Path
     feature_dirs: dict
+    covr2_features: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -24,9 +25,14 @@ class DemoConfig:
     @classmethod
     def defaults(cls, base=DEFAULT_BASE):
         labels = {'msrvtt': 'MSR-VTT', 'vatex': 'VATEX', 'activitynet': 'ActivityNet'}
-        return cls([DatasetSpec(key, labels[key], dataset_root(key, base),
+        datasets = [DatasetSpec(key, labels[key], dataset_root(key, base),
                     {model: dataset_root(key, base) / 'features' / folder for model, folder in MODEL_OUTPUTS.items()})
-                    for key in DATASET_NAMES])
+                    for key in DATASET_NAMES]
+        root = Path(base) / 'webvid_covr'
+        output = root / 'features' / 'webvid_covr' / 'test'
+        datasets.append(DatasetSpec('webvid_covr', 'WebVid-CoVR', root,
+                        {model: output / model for model in MODEL_NAMES}, output / 'covr2'))
+        return cls(datasets)
 
     @classmethod
     def from_yaml(cls, path):
@@ -41,8 +47,8 @@ class DemoConfig:
         for key, row in config['datasets'].items():
             if not isinstance(key, str) or not re.fullmatch(r'[a-z][a-z0-9_]*', key) or key == 'all':
                 raise ValueError(f'Invalid or reserved dataset key: {key}')
-            if not isinstance(row, dict) or 'root' not in row or set(row) - {'root', 'label', 'features'}:
-                raise ValueError(f'{key}: expected root, optional label and features.')
+            if not isinstance(row, dict) or 'root' not in row or set(row) - {'root', 'label', 'features', 'covr2_features'}:
+                raise ValueError(f'{key}: expected root, optional label, features and covr2_features.')
             root = Path(row['root']).expanduser()
             root = root if root.is_absolute() else path.parent / root
             root = root.resolve()
@@ -56,7 +62,13 @@ class DemoConfig:
             label = row.get('label', key)
             if not isinstance(label, str) or not label.strip():
                 raise ValueError(f'{key}: label must be nonempty.')
-            datasets.append(DatasetSpec(key, label, root, folders))
+            composed = row.get('covr2_features')
+            if composed is not None:
+                if not isinstance(composed,str) or not composed.strip():
+                    raise ValueError(f'{key}: covr2_features must be a nonempty path.')
+                composed = Path(composed).expanduser()
+                composed = (composed if composed.is_absolute() else root / composed).resolve()
+            datasets.append(DatasetSpec(key, label, root, folders, composed))
         model, top_k = config.get('default_model', 'internvideo2'), config.get('top_k', 10)
         if model not in MODEL_NAMES or type(top_k) is not int or not 1 <= top_k <= 100:
             raise ValueError('Invalid default_model or top_k (expected 1 to 100).')

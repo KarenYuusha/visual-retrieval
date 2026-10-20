@@ -76,4 +76,6 @@ runs report exclusions and requested/evaluated counts.
 
 This evaluates the [runtime CoVR-2 adaptation](covr2.md#method), not the official
 benchmark. Five samples are a smoke test; high-K recall on tiny galleries is trivial.
-These extracted features are not automatically registered in the demo.
+Restart the [demo](demo.md) and select **WebVid-CoVR** to search the extracted
+test videos. Image + text needs both CoVR-2 launch checkpoint options. Custom
+outputs/splits can be registered through `configs/demo.yaml`.

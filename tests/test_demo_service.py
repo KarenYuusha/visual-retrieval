@@ -122,7 +122,7 @@ def test_missing_gallery_excluded_and_invalid_media_metadata_rejected(tmp_path):
 def test_config_defaults_and_custom_dataset_relative_paths(tmp_path):
     from visual_retrieval.demo.config import DemoConfig
     default = DemoConfig.defaults(tmp_path)
-    assert [x.key for x in default.datasets] == ['msrvtt','vatex','activitynet']
+    assert [x.key for x in default.datasets] == ['msrvtt','vatex','activitynet','webvid_covr']
     assert default.datasets[0].root == tmp_path / 'msr_vtt'
     path = tmp_path / 'demo.yaml'
     path.write_text('default_model: clip\ndatasets:\n  extra:\n    label: More videos\n    root: extra_data\n    features:\n      clip: saved_clip\n')

@@ -1,5 +1,5 @@
 # Optional explicit registry. Relative feature paths are resolved under each root.
-# Without --config, the same three datasets are discovered under --base-root.
+# Without --config, these datasets are discovered under --base-root.
 default_model: internvideo2
 datasets:
   msrvtt:
@@ -23,3 +23,11 @@ datasets:
       clip: features/clip_vit_b32_12f_mean
       clip4clip: features/clip4clip_vit_b32_12f_meanP
       internvideo2: features/internvideo2_stage2_1b_all
+  webvid_covr:
+    label: WebVid-CoVR
+    root: S:/video_retrieval/webvid_covr
+    features:
+      clip: features/webvid_covr/test/clip
+      clip4clip: features/webvid_covr/test/clip4clip
+      internvideo2: features/webvid_covr/test/internvideo2
+    covr2_features: features/webvid_covr/test/covr2
