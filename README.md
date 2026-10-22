@@ -35,6 +35,26 @@ Expected Torch output: `2.5.1+cu121 12.1 True`. Use the requirements files to ke
 CUDA builds pinned. For an existing environment, skip `uv venv`; run `git pull`
 and the install command when dependencies change.
 
+## Run the demo
+
+After [preparing the CoVR-2 weights and gallery](docs/covr2.md), launch text and
+image + text search together:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\demo.py --allow-unknown-precision `
+  --covr2-base-checkpoint "S:\video_retrieval\weights\covr2\blip2_finetune_coco.pth" `
+  --covr2-checkpoint "S:\video_retrieval\weights\covr2\coir+covr.ckpt"
+```
+
+Open <http://127.0.0.1:7860>, select **WebVid-CoVR** (or another prepared dataset),
+paste/upload an image, type the desired change, and press **Search**. CoVR-2
+selects automatically. **Use frame** attaches a paused result as the reference.
+Text-only submissions use the selected CLIP/CLIP4Clip/InternVideo2 model.
+
+`--allow-unknown-precision` supports older `auto` caches missing precision metadata;
+omit it for fully matching caches. For text-only launch, use
+`.\.venv\Scripts\python.exe scripts\demo.py`. See [remote access and options](docs/demo.md).
+
 ## Develop
 
 ```powershell

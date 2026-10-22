@@ -15,14 +15,28 @@ Open <http://127.0.0.1:7860>. Choose a model/dataset, type a query, then press
 The grid adjusts its columns automatically and shows 20 results per page.
 
 Text results use a score threshold, so counts vary and may be zero.
-Image + text search requires [CoVR-2 setup](covr2.md).
 
 **WebVid-CoVR:** after [encoding](webvid_covr_evaluation.md), restart the demo and
 select **WebVid-CoVR** in the dataset list. Default discovery uses
 `S:\video_retrieval\webvid_covr\features\webvid_covr\test` for all four model spaces.
-For image + text, launch with both CoVR-2 checkpoint options from the setup guide.
 For another split/output, edit `configs/demo.yaml` baseline paths and
 `covr2_features` (relative to the dataset root), then launch with `--config`.
+
+## Image + text with CoVR-2
+
+Prepare [both weights and the gallery](covr2.md), then launch:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\demo.py --allow-unknown-precision `
+  --covr2-base-checkpoint "S:\video_retrieval\weights\covr2\blip2_finetune_coco.pth" `
+  --covr2-checkpoint "S:\video_retrieval\weights\covr2\coir+covr.ckpt"
+```
+
+Select **WebVid-CoVR** (or another prepared dataset), paste/upload a reference
+image, describe the change, then press **Enter/Search**. CoVR-2 selects automatically.
+You can also pause a result and click **Use frame**. Text-only submissions return
+to text retrieval. The first composed query loads the model and may take longer.
+The precision flag is only needed for older `auto` caches missing dtype metadata.
 
 ## Laptop on another network
 
