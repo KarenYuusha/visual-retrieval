@@ -67,6 +67,20 @@ def test_copy_paste_composed_search_and_use_frame_fallback(tmp_path,monkeypatch)
             page.locator('#query textarea').fill('make the person run')
             page.locator('#query textarea').press('Control+V')
             page.locator('#query .thumbnail-image').wait_for()
+            preview=page.locator('#query .thumbnail-image')
+            assert preview.bounding_box()['width']>=280
+            assert preview.bounding_box()['height']>=180
+            assert preview.evaluate("img=>getComputedStyle(img).objectFit==='contain'")
+            page.screenshot(path=str(tmp_path/'reference-desktop.png'),full_page=True)
+            page.set_viewport_size({'width':390,'height':844})
+            page.wait_for_timeout(200)
+            box=preview.bounding_box()
+            page.screenshot(path=str(tmp_path/'reference-mobile.png'),full_page=True)
+            assert box['width']>=240 and box['height']>=180
+            assert box['x']+box['width']<=390
+            assert page.evaluate('document.documentElement.scrollWidth<=window.innerWidth')
+            assert page.get_by_role('button',name='Remove file',exact=True).is_visible()
+            page.set_viewport_size({'width':1280,'height':900})
             assert page.locator('#model-choice input').input_value()=='CLIP'
             assert page.locator('#results img').count()==20
             assert page.locator('#query textarea').input_value()=='make the person run'

@@ -18,10 +18,16 @@ from .frames import COPY_JS, USE_JS, captured_frame, image_key
 
 LABELS = {'clip': 'CLIP', 'clip4clip': 'CLIP4Clip', 'internvideo2': 'InternVideo2', 'covr2': 'CoVR-2'}
 CSS = """
-.gradio-container {width:100% !important; max-width:1120px !important; margin:auto !important; padding:44px 24px !important;}
+.gradio-container {width:100% !important; max-width:1120px !important; margin:auto !important; padding:clamp(24px,4vw,44px) clamp(14px,2vw,24px) !important;}
+.gradio-container .main {padding:16px clamp(0px,calc((100vw - 600px)*0.08),32px) !important;}
 #heading h1 {font-size:28px; font-weight:550; letter-spacing:-.8px; margin:0 0 18px;}
-#search-row {gap:12px; align-items:stretch;}
+#search-row {gap:12px; align-items:flex-end;}
 #query textarea {font-size:16px; padding:15px 18px; border-radius:12px;}
+#query .thumbnails {padding:8px; box-sizing:border-box; overflow:visible;}
+#query .thumbnail-wrapper {flex:0 1 320px; min-width:0; max-width:calc(100% - 48px);}
+#query .thumbnail-item {width:100% !important; height:200px !important;}
+#query .thumbnail-image {width:100% !important; height:100% !important; object-fit:contain !important;}
+#query .delete-button {inset:8px 8px auto auto; width:32px; height:32px; opacity:1; border-radius:50%;}
 #search-button {border-radius:12px; min-height:54px;}
 #choices {max-width:470px; margin:10px 0 2px; gap:12px;}
 #summary {color:#727873; font-size:13px; min-height:24px;}
@@ -35,7 +41,10 @@ CSS = """
 #selected-preview {margin-top:20px;}
 #selection-detail {font-size:13px; color:#727873;}
 footer {display:none !important;}
-@media(max-width:600px) {.gradio-container {padding:24px 14px !important;} #choices {max-width:100%;}}
+@media(max-width:600px) {#choices {max-width:100%;}
+  #search-row {flex-direction:column !important; align-items:stretch !important;}
+  #query {flex-basis:100% !important; min-width:0 !important;}
+  #search-button {flex-basis:100% !important; min-width:100% !important;}}
 """
 
 
